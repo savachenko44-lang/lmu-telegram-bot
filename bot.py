@@ -112,6 +112,8 @@ async def fetch_racecontrol_events():
     for card in cards:
         title_el = card.find("h4")
         title = title_el.get_text(strip=True) if title_el else "Unknown"
+        img_el = card.find("img")
+        image = img_el.get("src") if img_el else ""
         tier_el = card.find("span", class_="tier-badge")
         tier = tier_el.get_text(strip=True) if tier_el else ""
         # track: find race-header containing "Track"
@@ -160,6 +162,7 @@ async def fetch_racecontrol_events():
                 "class": tier.capitalize() if tier else "",
                 "start_utc": dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "sessions": [{"name": "Race", "start_utc": dt.strftime("%Y-%m-%dT%H:%M:%SZ")}],
+                "image": image,
                 "url": RC_URL
             })
     return events
@@ -270,7 +273,7 @@ async def cmd_next(msg: types.Message):
         return
     # порядок категорий
     order = ["Beginner", "Intermediate", "Advanced"]
-    lines = ["🏁 Ближайшие гонки по категориям:"]
+    await msg.answer("🏁 Ближайшие гонки по категориям:")
     for cat in order + [c for c in by_cat if c not in order]:
         if cat not in by_cat:
             continue
@@ -278,12 +281,19 @@ async def cmd_next(msg: types.Message):
         delta = dt - now
         hours = int(delta.total_seconds() // 3600)
         mins = int((delta.total_seconds() % 3600) // 60)
-        lines.append(
-            f"\n[{cat}]\n"
+        caption = (
+            f"[{cat}]\n"
             f"{e['title']} — {e['track']}\n"
             f"Старт: {e['start_utc']} UTC (через {hours}ч {mins}мин)"
         )
-    await msg.answer("\n".join(lines))
+        image = e.get("image")
+        if image:
+            try:
+                await bot.send_photo(msg.chat.id, image, caption=caption)
+                continue
+            except Exception:
+                pass
+        await msg.answer(caption)
 
 
 @dp.message(Command("schedule"))
