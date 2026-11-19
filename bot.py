@@ -246,7 +246,7 @@ async def cmd_start(msg: types.Message):
         "Команды:\n"
         "/next — следующее событие\n"
         "/schedule — ближайшие 7 дней\n"
-        "/subscribe — подписаться на уведомления\n"
+        "/subscribe — подписаться на еженедельную рассылку\n"
         "/unsubscribe — отписаться\n"
         "/refresh — обновить расписание с RaceControl\n"
         "/help — справка"
@@ -292,10 +292,9 @@ async def cmd_schedule(msg: types.Message):
 async def cmd_subscribe(msg: types.Message):
     await subscribe(msg.chat.id)
     await msg.answer(
-        "✅ Вы подписаны на уведомления!\n"
-        "• ежедневный дайджест в 09:00 UTC\n"
-        "• за 24 часа до старта\n"
-        "• за 1 час до старта\n\n"
+        "✅ Вы подписаны на еженедельную рассылку!\n"
+        "Каждый понедельник в 09:00 UTC буду присылать\n"
+        "расписание гонок на ближайшую неделю.\n\n"
         "Отписаться: /unsubscribe"
     )
 
@@ -322,7 +321,7 @@ async def cmd_help(msg: types.Message):
         "Бот расписания LMU (данные RaceControl.gg).\n"
         "/next — следующее событие\n"
         "/schedule — ближайшие 7 дней\n"
-        "/subscribe — подписаться на уведомления\n"
+        "/subscribe — подписаться на еженедельную рассылку\n"
         "/unsubscribe — отписаться\n"
         "/refresh — обновить расписание"
     )
@@ -336,48 +335,27 @@ async def safe_send(chat_id, text):
         await unsubscribe(chat_id)
 
 
-async def daily_digest():
-    today = today_events()
-    tomorrow = tomorrow_events()
+async def weekly_digest():
+    now = datetime.now(timezone.utc)
+    events = []
+    for e in load_events():
+        dt = parse_dt(e["start_utc"])
+        if 0 <= (dt - now).total_seconds() <= 7 * 86400:
+            events.append((dt, e))
+    events.sort(key=lambda x: x[0])
     subs = await all_subscribers()
     if not subs:
         return
-    lines = ["📅 Дайджест расписания LMU (RaceControl)"]
-    if today:
-        lines.append("\n🏁 Сегодня:")
-        for dt, e in today[:20]:
-            lines.append(f"• {dt.strftime('%H:%M')} UTC — {e['title']} ({e['track']})")
-    if tomorrow:
-        lines.append("\n📆 Завтра:")
-        for dt, e in tomorrow[:20]:
-            lines.append(f"• {dt.strftime('%H:%M')} UTC — {e['title']} ({e['track']})")
-    if not today and not tomorrow:
-        lines.append("\nНа сегодня и завтра событий нет.")
-    text = "\n".join(lines)
+    if not events:
+        text = "📅 На ближайшую неделю событий нет."
+    else:
+        lines = ["📅 Расписание LMU на неделю (RaceControl):"]
+        for dt, e in events[:40]:
+            lines.append(f"• {dt.strftime('%d.%m %H:%M')} UTC — {e['title']} ({e['track']}) [{e['class']}]")
+        text = "\n".join(lines)
     for chat_id, n24, n1, ns, daily in subs:
         if daily:
             await safe_send(chat_id, text)
-
-
-async def check_upcoming():
-    for dt, e in events_in_range(23, 25):
-        subs = await all_subscribers()
-        for chat_id, n24, n1, ns, daily in subs:
-            if not n24:
-                continue
-            if await already_sent(e["id"], chat_id, "24h"):
-                continue
-            await safe_send(chat_id, f"⏰ Через 24 часа: {e['title']} ({e['track']})\nСтарт: {e['start_utc']} UTC")
-            await mark_sent(e["id"], chat_id, "24h")
-    for dt, e in events_in_range(0.5, 1.5):
-        subs = await all_subscribers()
-        for chat_id, n24, n1, ns, daily in subs:
-            if not n1:
-                continue
-            if await already_sent(e["id"], chat_id, "1h"):
-                continue
-            await safe_send(chat_id, f"🚨 Через 1 час: {e['title']} ({e['track']})\nСтарт: {e['start_utc']} UTC")
-            await mark_sent(e["id"], chat_id, "1h")
 
 
 # ---------- Web ----------
@@ -404,8 +382,7 @@ async def main():
     if WEBHOOK_URL:
         await bot.set_webhook(WEBHOOK_URL)
 
-    scheduler.add_job(daily_digest, "cron", hour=9, minute=0)
-    scheduler.add_job(check_upcoming, "interval", minutes=15)
+    scheduler.add_job(weekly_digest, "cron", day_of_week="mon", hour=9, minute=0)
     scheduler.add_job(update_rc_cache, "interval", hours=6)
     scheduler.start()
 
