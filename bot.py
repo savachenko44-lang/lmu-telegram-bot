@@ -289,19 +289,15 @@ async def cmd_next(msg: types.Message):
 @dp.message(Command("schedule"))
 async def cmd_schedule(msg: types.Message):
     now = datetime.now(timezone.utc)
-    # группируем по категории, убираем дубли по title+track
+    # группируем по категории -> гонка (title+track) -> список времён старта
     by_cat = {}
-    seen = set()
     for e in load_events():
         dt = parse_dt(e["start_utc"])
         if not (0 <= (dt - now).total_seconds() <= 7 * 86400):
             continue
         cat = (e.get("class") or "").strip() or "Other"
-        key = (cat, e.get("title"), e.get("track"))
-        if key in seen:
-            continue
-        seen.add(key)
-        by_cat.setdefault(cat, []).append((dt, e))
+        key = (e.get("title"), e.get("track"))
+        by_cat.setdefault(cat, {}).setdefault(key, []).append(dt)
     if not by_cat:
         await msg.answer("На ближайшие 7 дней событий нет. Попробуйте /refresh")
         return
@@ -311,8 +307,9 @@ async def cmd_schedule(msg: types.Message):
         if cat not in by_cat:
             continue
         lines.append(f"\n[{cat}]")
-        for dt, e in sorted(by_cat[cat], key=lambda x: x[0]):
-            lines.append(f"• {e['title']} — {e['track']} (первый старт {dt.strftime('%d.%m %H:%M')} UTC)")
+        for (title, track), times in by_cat[cat].items():
+            times_sorted = sorted(set(t.strftime("%H:%M") for t in times))
+            lines.append(f"• {title} — {track}: {', '.join(times_sorted)}")
     await msg.answer("\n".join(lines))
 
 
