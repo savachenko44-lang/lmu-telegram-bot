@@ -255,19 +255,35 @@ async def cmd_start(msg: types.Message):
 
 @dp.message(Command("next"))
 async def cmd_next(msg: types.Message):
-    e, dt = next_event()
-    if not e:
+    now = datetime.now(timezone.utc)
+    # ближайшее событие по каждой категории
+    by_cat = {}
+    for e in load_events():
+        dt = parse_dt(e["start_utc"])
+        if dt <= now:
+            continue
+        cat = (e.get("class") or "").strip() or "Other"
+        if cat not in by_cat or dt < by_cat[cat][0]:
+            by_cat[cat] = (dt, e)
+    if not by_cat:
         await msg.answer("Событий не найдено. Попробуйте /refresh")
         return
-    delta = dt - datetime.now(timezone.utc)
-    hours = int(delta.total_seconds() // 3600)
-    mins = int((delta.total_seconds() % 3600) // 60)
-    await msg.answer(
-        f"🏁 {e['title']}\n"
-        f"Трасса: {e['track']} | Класс: {e['class']}\n"
-        f"Старт (UTC): {e['start_utc']}\n"
-        f"Осталось: {hours}ч {mins}мин"
-    )
+    # порядок категорий
+    order = ["Beginner", "Intermediate", "Advanced"]
+    lines = ["🏁 Ближайшие гонки по категориям:"]
+    for cat in order + [c for c in by_cat if c not in order]:
+        if cat not in by_cat:
+            continue
+        dt, e = by_cat[cat]
+        delta = dt - now
+        hours = int(delta.total_seconds() // 3600)
+        mins = int((delta.total_seconds() % 3600) // 60)
+        lines.append(
+            f"\n[{cat}]\n"
+            f"{e['title']} — {e['track']}\n"
+            f"Старт: {e['start_utc']} UTC (через {hours}ч {mins}мин)"
+        )
+    await msg.answer("\n".join(lines))
 
 
 @dp.message(Command("schedule"))
