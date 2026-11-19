@@ -88,18 +88,22 @@ async def health(request):
     return web.Response(text="ok")
 
 
-async def on_startup(app):
-    if WEBHOOK_URL:
-        await bot.set_webhook(WEBHOOK_URL)
-
-
 async def main():
     app = web.Application()
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
     setup_application(app, dp, bot=bot)
     app.router.add_get("/", health)
-    app.on_startup.append(on_startup)
-    web.run_app(app, host="0.0.0.0", port=PORT)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="0.0.0.0", port=PORT)
+    await site.start()
+
+    if WEBHOOK_URL:
+        await bot.set_webhook(WEBHOOK_URL)
+
+    # keep running
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
