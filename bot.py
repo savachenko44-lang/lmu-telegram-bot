@@ -293,7 +293,7 @@ async def cmd_subscribe(msg: types.Message):
     await subscribe(msg.chat.id)
     await msg.answer(
         "✅ Вы подписаны на еженедельную рассылку!\n"
-        "Каждый понедельник в 09:00 UTC буду присылать\n"
+        "Каждый вторник в 10:30 UTC буду присылать\n"
         "расписание гонок на ближайшую неделю.\n\n"
         "Отписаться: /unsubscribe"
     )
@@ -382,7 +382,9 @@ async def main():
     if WEBHOOK_URL:
         await bot.set_webhook(WEBHOOK_URL)
 
-    scheduler.add_job(weekly_digest, "cron", day_of_week="mon", hour=9, minute=0)
+    # RaceControl weekly schedule updates every Tuesday 10:00 UTC
+    scheduler.add_job(update_rc_cache, "cron", day_of_week="tue", hour=10, minute=0)
+    scheduler.add_job(weekly_digest, "cron", day_of_week="tue", hour=10, minute=30)
     scheduler.add_job(update_rc_cache, "interval", hours=6)
     scheduler.start()
 
