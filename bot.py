@@ -69,7 +69,7 @@ def events_in_range(hours_from, hours_to):
         dt = parse_dt(e["start_utc"])
         if lo <= dt <= hi:
             res.append((dt, e))
-    res.sort()
+    res.sort(key=lambda x: x[0])
     return res
 
 
@@ -82,7 +82,7 @@ def today_events():
         dt = parse_dt(e["start_utc"])
         if start <= dt < end:
             res.append((dt, e))
-    res.sort()
+    res.sort(key=lambda x: x[0])
     return res
 
 
@@ -95,7 +95,7 @@ def tomorrow_events():
         dt = parse_dt(e["start_utc"])
         if start <= dt < end:
             res.append((dt, e))
-    res.sort()
+    res.sort(key=lambda x: x[0])
     return res
 
 
@@ -278,7 +278,7 @@ async def cmd_schedule(msg: types.Message):
         dt = parse_dt(e["start_utc"])
         if 0 <= (dt - now).total_seconds() <= 7 * 86400:
             events.append((dt, e))
-    events.sort()
+    events.sort(key=lambda x: x[0])
     if not events:
         await msg.answer("На ближайшие 7 дней событий нет. Попробуйте /refresh")
         return
