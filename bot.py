@@ -273,7 +273,7 @@ async def cmd_next(msg: types.Message):
         return
     # порядок категорий
     order = ["Beginner", "Intermediate", "Advanced"]
-    await msg.answer("🏁 Ближайшие гонки по категориям:")
+    lines = ["🏁 Ближайшие гонки по категориям:"]
     for cat in order + [c for c in by_cat if c not in order]:
         if cat not in by_cat:
             continue
@@ -281,19 +281,12 @@ async def cmd_next(msg: types.Message):
         delta = dt - now
         hours = int(delta.total_seconds() // 3600)
         mins = int((delta.total_seconds() % 3600) // 60)
-        caption = (
-            f"[{cat}]\n"
+        lines.append(
+            f"\n[{cat}]\n"
             f"{e['title']} — {e['track']}\n"
             f"Старт: {e['start_utc']} UTC (через {hours}ч {mins}мин)"
         )
-        image = e.get("image")
-        if image:
-            try:
-                await bot.send_photo(msg.chat.id, image, caption=caption)
-                continue
-            except Exception:
-                pass
-        await msg.answer(caption)
+    await msg.answer("\n".join(lines))
 
 
 @dp.message(Command("schedule"))
