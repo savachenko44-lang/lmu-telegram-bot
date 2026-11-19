@@ -1,0 +1,30 @@
+[
+  {
+    "id": "wec-qatar-2026",
+    "title": "Qatar 1812 km",
+    "series": "WEC",
+    "track": "Lusail",
+    "class": "Hypercar",
+    "start_utc": "2026-03-28T11:00:00Z",
+    "sessions": [
+      {"name": "Practice 1", "start_utc": "2026-03-26T09:00:00Z"},
+      {"name": "Qualifying", "start_utc": "2026-03-27T14:00:00Z"},
+      {"name": "Race", "start_utc": "2026-03-28T11:00:00Z"}
+    ],
+    "url": "https://www.lemansultimate.com"
+  },
+  {
+    "id": "wec-imola-2026",
+    "title": "6 Hours of Imola",
+    "series": "WEC",
+    "track": "Imola",
+    "class": "Hypercar",
+    "start_utc": "2026-04-19T12:00:00Z",
+    "sessions": [
+      {"name": "Practice 1", "start_utc": "2026-04-17T08:00:00Z"},
+      {"name": "Qualifying", "start_utc": "2026-04-18T13:00:00Z"},
+      {"name": "Race", "start_utc": "2026-04-19T12:00:00Z"}
+    ],
+    "url": "https://www.lemansultimate.com"
+  }
+]
