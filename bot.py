@@ -55,7 +55,7 @@ def load_events():
 # ---------- DB ----------
 async def init_db():
     global DB_POOL
-    DB_POOL = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+    DB_POOL = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5, statement_cache_size=0)
     async with DB_POOL.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS subscribers (
