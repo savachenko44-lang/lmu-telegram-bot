@@ -292,7 +292,7 @@ async def cmd_next(msg: types.Message):
         dur = e.get("duration", "")
         dur_line = f"\n⏱ Длительность: {dur}" if dur else ""
         lines.append(
-            f"\n{medal} {cat}\n"
+            f"\n{medal} {cat} {medal}\n"
             f"{e['title']} — {e['track']}\n"
             f"⏰ {dt.strftime('%H:%M')} UTC (через {hours}ч {mins}мин){dur_line}"
         )
@@ -316,12 +316,12 @@ async def cmd_schedule(msg: types.Message):
         return
     order = ["Beginner", "Intermediate", "Advanced"]
     medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
-    lines = ["📅 Расписание на неделю (RaceControl):"]
+    lines = ["📅 Расписание на неделю Daily:"]
     for cat in order + [c for c in by_cat if c not in order]:
         if cat not in by_cat:
             continue
         medal = medals.get(cat, "🏅")
-        lines.append(f"\n{cat} {medal}")
+        lines.append(f"\n{medal} {cat} {medal}")
         races = list(by_cat[cat].items())
         for idx, ((title, track), times) in enumerate(races):
             times_sorted = sorted(set(t.strftime("%H:%M") for t in times))
