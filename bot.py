@@ -321,7 +321,7 @@ async def cmd_schedule(msg: types.Message):
         if cat not in by_cat:
             continue
         medal = medals.get(cat, "🏅")
-        lines.append(f"\n{medal} {cat}")
+        lines.append(f"\n{cat} {medal}")
         races = list(by_cat[cat].items())
         for idx, ((title, track), times) in enumerate(races):
             times_sorted = sorted(set(t.strftime("%H:%M") for t in times))
@@ -335,6 +335,7 @@ async def cmd_schedule(msg: types.Message):
             lines.append(f"⏰ {', '.join(times_sorted)}")
             if idx < len(races) - 1:
                 lines.append("")
+        lines.append("")
     await msg.answer("\n".join(lines))
 
 
