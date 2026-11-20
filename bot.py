@@ -501,8 +501,7 @@ async def cmd_tz(msg: types.Message):
     tz = await get_tz(msg.chat.id)
     await msg.answer(
         f"Ваш часовой пояс: {tz}\n\n"
-        "Выберите из списка или введите вручную:\n"
-        "/tz +3  или  /tz Europe/Kyiv",
+        "Выберите из списка или введите вручную:",
         reply_markup=tz_keyboard()
     )
 
@@ -510,6 +509,9 @@ async def cmd_tz(msg: types.Message):
 @dp.callback_query(F.data.startswith("tz:"))
 async def cb_tz(callback: types.CallbackQuery):
     tz = callback.data.split(":", 1)[1]
+    if tz == "manual":
+        await cb_tz_manual(callback)
+        return
     if not valid_tz(tz):
         await callback.answer("Неверный пояс", show_alert=True)
         return
