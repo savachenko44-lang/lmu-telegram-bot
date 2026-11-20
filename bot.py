@@ -436,7 +436,41 @@ async def cb_menu_unsub(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "menu:settings")
 async def cb_menu_settings(callback: types.CallbackQuery):
     await callback.answer()
-    await cmd_tz(callback.message)
+    lang = await get_lang(callback.from_user.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🕐 " + ("Часовой пояс" if lang == "ru" else "Часовий пояс" if lang == "uk" else "Timezone"), callback_data="settings:tz")],
+        [InlineKeyboardButton(text="🌐 " + ("Язык" if lang == "ru" else "Мова" if lang == "uk" else "Language"), callback_data="settings:lang")],
+    ])
+    await callback.message.answer("⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), reply_markup=kb)
+
+
+@dp.callback_query(F.data == "settings:tz")
+async def cb_settings_tz(callback: types.CallbackQuery):
+    await callback.answer()
+    lang = await get_lang(callback.from_user.id)
+    tz = await get_tz(callback.from_user.id)
+    off = await get_offset_minutes(callback.from_user.id)
+    label = tz_label(tz, off)
+    await callback.message.edit_text(
+        ("Ваш часовой пояс: " if lang == "ru" else "Ваш часовий пояс: " if lang == "uk" else "Your timezone: ") + label + "\n\n" +
+        ("Выберите из списка или введите вручную:" if lang == "ru" else "Оберіть зі списку або введіть вручну:" if lang == "uk" else "Choose from list or enter manually:"),
+        reply_markup=tz_keyboard()
+    )
+
+
+@dp.callback_query(F.data == "settings:lang")
+async def cb_settings_lang(callback: types.CallbackQuery):
+    await callback.answer()
+    lang = await get_lang(callback.from_user.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru")],
+        [InlineKeyboardButton(text="🇺🇦 Українська", callback_data="lang:uk")],
+        [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en")],
+    ])
+    await callback.message.edit_text(
+        "Текущий язык: " + lang if lang == "ru" else "Поточна мова: " + lang if lang == "uk" else "Current language: " + lang,
+        reply_markup=kb
+    )
 
 
 @dp.callback_query(F.data == "menu:admin")
