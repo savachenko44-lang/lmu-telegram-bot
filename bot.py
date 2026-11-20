@@ -385,8 +385,11 @@ async def cb_tz_manual(callback: types.CallbackQuery):
 async def cmd_next(msg: types.Message):
     now = datetime.now(timezone.utc)
     if not any(parse_dt(e["start_utc"]) > now for e in load_events()):
-        await update_rc_cache()
-    tz_name, off, tz = await get_tzinfo_for(msg.chat.id) if False else (await get_tz(msg.chat.id), await get_offset_minutes(msg.chat.id), None)
+        asyncio.create_task(update_rc_cache())
+        await msg.answer("🔄 Расписание обновляется, попробуйте /next через минуту.")
+        return
+    tz_name = await get_tz(msg.chat.id)
+    off = await get_offset_minutes(msg.chat.id)
     tz = get_tzinfo(tz_name, off)
     label = tz_label(tz_name, off)
     by_cat = {}
@@ -426,7 +429,9 @@ async def cmd_next(msg: types.Message):
 async def cmd_schedule(msg: types.Message):
     now = datetime.now(timezone.utc)
     if not any(parse_dt(e["start_utc"]) > now for e in load_events()):
-        await update_rc_cache()
+        asyncio.create_task(update_rc_cache())
+        await msg.answer("🔄 Расписание обновляется, попробуйте /schedule через минуту.")
+        return
     tz_name = await get_tz(msg.chat.id)
     off = await get_offset_minutes(msg.chat.id)
     tz = get_tzinfo(tz_name, off)
