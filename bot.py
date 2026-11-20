@@ -395,16 +395,54 @@ async def cmd_start(msg: types.Message):
     sub_status = "✅ " + ("Вы подписаны на рассылку" if lang == "ru" else "Ви підписані на розсилку" if lang == "uk" else "You are subscribed")
     if not await is_subscribed(msg.chat.id):
         sub_status = "❌ " + ("Вы не подписаны. /subscribe" if lang == "ru" else "Ви не підписані. /subscribe" if lang == "uk" else "Not subscribed. /subscribe")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏁 " + ("Ближайшие" if lang == "ru" else "Найближчі" if lang == "uk" else "Nearest"), callback_data="menu:next")],
+        [InlineKeyboardButton(text="📅 " + ("Расписание" if lang == "ru" else "Розклад" if lang == "uk" else "Schedule"), callback_data="menu:schedule")],
+        [InlineKeyboardButton(text=("✅ Подписаться" if lang == "ru" else "✅ Підписатися" if lang == "uk" else "✅ Subscribe") if not await is_subscribed(msg.chat.id) else ("❌ Отписаться" if lang == "ru" else "❌ Відписатися" if lang == "uk" else "❌ Unsubscribe"), callback_data="menu:sub" if not await is_subscribed(msg.chat.id) else "menu:unsub")],
+        [InlineKeyboardButton(text="⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), callback_data="menu:settings")],
+    ])
+    if ADMIN_CHAT_ID and str(msg.chat.id) == str(ADMIN_CHAT_ID):
+        kb.inline_keyboard.append([InlineKeyboardButton(text="🔧 Admin", callback_data="menu:admin")])
     await msg.answer(
-        tr("start", lang) +
-        f"/next — {tr('next', lang)}\n"
-        f"/schedule — {tr('schedule', lang)}\n"
-        f"/subscribe — {tr('subscribed', lang).split(chr(10))[0]}\n"
-        f"/unsubscribe — {tr('unsubscribed', lang)}\n"
-        f"/tz — часовой пояс / timezone\n"
-        f"/lang — язык / language\n"
-        f"\n{sub_status}"
+        tr("start", lang) + f"\n{sub_status}",
+        reply_markup=kb
     )
+
+
+@dp.callback_query(F.data == "menu:next")
+async def cb_menu_next(callback: types.CallbackQuery):
+    await callback.answer()
+    await cmd_next(callback.message)
+
+
+@dp.callback_query(F.data == "menu:schedule")
+async def cb_menu_schedule(callback: types.CallbackQuery):
+    await callback.answer()
+    await cmd_schedule(callback.message)
+
+
+@dp.callback_query(F.data == "menu:sub")
+async def cb_menu_sub(callback: types.CallbackQuery):
+    await callback.answer()
+    await cmd_subscribe(callback.message)
+
+
+@dp.callback_query(F.data == "menu:unsub")
+async def cb_menu_unsub(callback: types.CallbackQuery):
+    await callback.answer()
+    await cmd_unsubscribe(callback.message)
+
+
+@dp.callback_query(F.data == "menu:settings")
+async def cb_menu_settings(callback: types.CallbackQuery):
+    await callback.answer()
+    await cmd_tz(callback.message)
+
+
+@dp.callback_query(F.data == "menu:admin")
+async def cb_menu_admin(callback: types.CallbackQuery):
+    await callback.answer()
+    await cmd_admin(callback.message)
 
 
 TZ_OPTIONS = [
