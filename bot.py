@@ -11,7 +11,7 @@ import httpx
 from bs4 import BeautifulSoup
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, BotCommandScopeChat
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -703,16 +703,23 @@ async def health(request):
 async def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     await init_db()
-    await bot.set_my_commands([
+    base_commands = [
         BotCommand(command="start", description="Запуск бота"),
         BotCommand(command="next", description="Ближайшие гонки по категориям"),
         BotCommand(command="schedule", description="Расписание на неделю"),
         BotCommand(command="subscribe", description="Подписаться на рассылку"),
         BotCommand(command="unsubscribe", description="Отписаться"),
         BotCommand(command="tz", description="Часовой пояс"),
-        BotCommand(command="refresh", description="Обновить расписание"),
+        BotCommand(command="lang", description="Язык"),
         BotCommand(command="help", description="Справка"),
-    ])
+    ]
+    await bot.set_my_commands(base_commands)
+    if ADMIN_CHAT_ID:
+        admin_commands = base_commands + [
+            BotCommand(command="refresh", description="Обновить расписание"),
+            BotCommand(command="stats", description="Статистика"),
+        ]
+        await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=int(ADMIN_CHAT_ID)))
     asyncio.create_task(update_rc_cache())
 
     app = web.Application()
