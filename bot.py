@@ -964,6 +964,7 @@ async def main():
     if WEBHOOK_URL:
         await bot.set_webhook(WEBHOOK_URL)
 
+    scheduler.add_job(update_rc_cache, "cron", hour=0, minute=0)  # ежедневно в 00:00 UTC
     scheduler.add_job(update_rc_cache, "cron", day_of_week="tue", hour=10, minute=10)
     scheduler.add_job(weekly_digest, "cron", day_of_week="tue", hour=10, minute=30)
     scheduler.add_job(update_rc_cache, "interval", hours=6)
