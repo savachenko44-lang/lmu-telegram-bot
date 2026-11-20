@@ -3,6 +3,7 @@ import json
 import asyncio
 import re
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import aiosqlite
@@ -196,9 +197,15 @@ async def init_db():
                 notify_24h INTEGER DEFAULT 1,
                 notify_1h INTEGER DEFAULT 1,
                 notify_start INTEGER DEFAULT 1,
-                daily INTEGER DEFAULT 1
+                daily INTEGER DEFAULT 1,
+                tz TEXT DEFAULT 'UTC'
             )
         """)
+        # migration: add tz column if missing
+        try:
+            await db.execute("ALTER TABLE subscribers ADD COLUMN tz TEXT DEFAULT 'UTC'")
+        except Exception:
+            pass
         await db.execute("""
             CREATE TABLE IF NOT EXISTS sent (
                 event_id TEXT,
@@ -228,9 +235,34 @@ async def unsubscribe(chat_id):
         await db.commit()
 
 
+async def get_tz(chat_id):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT tz FROM subscribers WHERE chat_id=?", (chat_id,))
+        row = await cur.fetchone()
+    if row and row[0]:
+        return row[0]
+    return "UTC"
+
+
+async def set_tz(chat_id, tz):
+    # ensure subscribed
+    await subscribe(chat_id)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE subscribers SET tz=? WHERE chat_id=?", (tz, chat_id))
+        await db.commit()
+
+
+def valid_tz(tz):
+    try:
+        ZoneInfo(tz)
+        return True
+    except Exception:
+        return False
+
+
 async def all_subscribers():
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT chat_id, notify_24h, notify_1h, notify_start, daily FROM subscribers")
+        cur = await db.execute("SELECT chat_id, notify_24h, notify_1h, notify_start, daily, tz FROM subscribers")
         rows = await cur.fetchall()
     return rows
 
@@ -257,6 +289,7 @@ async def cmd_start(msg: types.Message):
         "/schedule — расписание недели\n"
         "/subscribe — подписаться на еженедельную рассылку\n"
         "/unsubscribe — отписаться\n"
+        "/tz — установить часовой пояс\n"
         "/refresh — обновить расписание с RaceControl\n"
         "/help — справка"
     )
@@ -265,6 +298,8 @@ async def cmd_start(msg: types.Message):
 @dp.message(Command("next"))
 async def cmd_next(msg: types.Message):
     now = datetime.now(timezone.utc)
+    tz_name = await get_tz(msg.chat.id)
+    tz = ZoneInfo(tz_name)
     # ближайшее событие по каждой категории
     by_cat = {}
     for e in load_events():
@@ -291,10 +326,11 @@ async def cmd_next(msg: types.Message):
         medal = medals.get(cat, "🏅")
         dur = e.get("duration", "")
         dur_line = f"\n⏱ Длительность: {dur}" if dur else ""
+        local = dt.astimezone(tz)
         lines.append(
             f"\n{medal} {cat} {medal}\n"
             f"{e['title']} — {e['track']}\n"
-            f"⏰ {dt.strftime('%H:%M')} UTC (через {hours}ч {mins}мин){dur_line}"
+            f"⏰ {local.strftime('%H:%M')} ({tz_name}) (через {hours}ч {mins}мин){dur_line}"
         )
     await msg.answer("\n".join(lines))
 
@@ -302,6 +338,8 @@ async def cmd_next(msg: types.Message):
 @dp.message(Command("schedule"))
 async def cmd_schedule(msg: types.Message):
     now = datetime.now(timezone.utc)
+    tz_name = await get_tz(msg.chat.id)
+    tz = ZoneInfo(tz_name)
     # группируем по категории -> гонка (title+track) -> список времён старта
     by_cat = {}
     for e in load_events():
@@ -324,7 +362,7 @@ async def cmd_schedule(msg: types.Message):
         lines.append(f"\n{medal} {cat} {medal}")
         races = list(by_cat[cat].items())
         for idx, ((title, track), times) in enumerate(races):
-            times_sorted = sorted(set(t.strftime("%H:%M") for t in times))
+            times_sorted = sorted(set(t.astimezone(tz).strftime("%H:%M") for t in times))
             dur = ""
             for e in load_events():
                 if e.get("title") == title and e.get("track") == track:
@@ -332,7 +370,7 @@ async def cmd_schedule(msg: types.Message):
                     break
             dur_str = f" ({dur})" if dur else ""
             lines.append(f"• {title} — {track}{dur_str}")
-            lines.append(f"⏰ {', '.join(times_sorted)}")
+            lines.append(f"⏰ {', '.join(times_sorted)} ({tz_name})")
             if idx < len(races) - 1:
                 lines.append("")
         lines.append("")
@@ -348,6 +386,28 @@ async def cmd_subscribe(msg: types.Message):
         "расписание гонок на ближайшую неделю.\n\n"
         "Отписаться: /unsubscribe"
     )
+
+
+@dp.message(Command("tz"))
+async def cmd_tz(msg: types.Message):
+    args = (msg.text or "").split(maxsplit=1)
+    if len(args) < 2:
+        tz = await get_tz(msg.chat.id)
+        await msg.answer(
+            f"Ваш часовой пояс: {tz}\n\n"
+            "Установить: /tz <IANA>, например:\n"
+            "/tz Europe/Kiev\n"
+            "/tz Europe/Moscow\n"
+            "/tz UTC\n\n"
+            "Список: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+        )
+        return
+    tz = args[1].strip()
+    if not valid_tz(tz):
+        await msg.answer("❌ Неверный часовой пояс. Пример: Europe/Kiev")
+        return
+    await set_tz(msg.chat.id, tz)
+    await msg.answer(f"✅ Часовой пояс установлен: {tz}")
 
 
 @dp.message(Command("unsubscribe"))
@@ -374,6 +434,7 @@ async def cmd_help(msg: types.Message):
         "/schedule — расписание недели\n"
         "/subscribe — подписаться на еженедельную рассылку\n"
         "/unsubscribe — отписаться\n"
+        "/tz — установить часовой пояс\n"
         "/refresh — обновить расписание"
     )
 
@@ -397,16 +458,19 @@ async def weekly_digest():
     subs = await all_subscribers()
     if not subs:
         return
-    if not events:
-        text = "📅 На ближайшую неделю событий нет."
-    else:
-        lines = ["📅 Расписание LMU на неделю (RaceControl):"]
-        for dt, e in events[:40]:
-            lines.append(f"• {dt.strftime('%d.%m %H:%M')} UTC — {e['title']} ({e['track']}) [{e['class']}]")
-        text = "\n".join(lines)
-    for chat_id, n24, n1, ns, daily in subs:
-        if daily:
-            await safe_send(chat_id, text)
+    for chat_id, n24, n1, ns, daily, tz_name in subs:
+        if not daily:
+            continue
+        tz = ZoneInfo(tz_name or "UTC")
+        if not events:
+            text = "📅 На ближайшую неделю событий нет."
+        else:
+            lines = ["📅 Расписание LMU на неделю Daily:"]
+            for dt, e in events[:40]:
+                local = dt.astimezone(tz)
+                lines.append(f"• {local.strftime('%d.%m %H:%M')} ({tz_name}) — {e['title']} ({e['track']}) [{e['class']}]")
+            text = "\n".join(lines)
+        await safe_send(chat_id, text)
 
 
 # ---------- Web ----------
