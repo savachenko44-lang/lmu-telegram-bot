@@ -614,9 +614,11 @@ async def cb_lang(callback: types.CallbackQuery):
 
 @dp.message(Command("refresh"))
 async def cmd_refresh(msg: types.Message):
+    if ADMIN_CHAT_ID and str(msg.chat.id) != str(ADMIN_CHAT_ID):
+        return
     lang = await get_lang(msg.chat.id)
     await msg.answer("🔄 " + ("Обновляю расписание..." if lang == "ru" else "Updating schedule..."))
-    n = await update_rc_cache()
+    n = await update_rc_cache(force=True)
     if n:
         await msg.answer(tr("refresh_ok", lang, n=n))
     else:
