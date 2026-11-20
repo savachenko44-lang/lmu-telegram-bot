@@ -56,6 +56,26 @@ T = {
         "dur": "⏱ Длительность: {dur}",
         "start_in": "через {h}ч {m}мин",
     },
+    "uk": {
+        "start": "Привіт! Я бот розкладу Le Mans Ultimate (дані з RaceControl.gg).\n\nКоманди:\n",
+        "next": "🏁 Найближчі гонки за категоріями:",
+        "schedule": "📅 Розклад на тиждень Daily:",
+        "no_events": "Подій не знайдено. Спробуйте /refresh",
+        "no_week": "На найближчі 7 днів подій немає. Спробуйте /refresh",
+        "refreshing": "🔄 Розклад оновлюється, спробуйте через хвилину.",
+        "refresh_ok": "✅ Завантажено подій: {n}",
+        "refresh_fail": "❌ Не вдалося отримати дані. Спробуйте пізніше.",
+        "subscribed": "✅ Ви підписані на щотижневу розсилку!\nЩовівторка о 10:30 UTC буду надсилати\nрозклад гонок на найближчий тиждень.\n\nВідписатися: /unsubscribe",
+        "unsubscribed": "❌ Ви відписані від сповіщень.",
+        "help": "Бот розкладу LMU (дані RaceControl.gg).",
+        "tz_current": "Ваш часовий пояс: {tz}\n\nОберіть зі списку або введіть вручну:",
+        "tz_set": "✅ Часовий пояс встановлено: {tz}",
+        "tz_invalid": "❌ Невірний часовий пояс. Приклад: Europe/Kyiv або +3",
+        "weekly_empty": "📅 На найближчий тиждень подій немає.",
+        "weekly_title": "📅 Розклад LMU на тиждень Daily:",
+        "dur": "⏱ Тривалість: {dur}",
+        "start_in": "через {h}год {m}хв",
+    },
     "en": {
         "start": "Hi! I'm the Le Mans Ultimate schedule bot (data from RaceControl.gg).\n\nCommands:\n",
         "next": "🏁 Nearest races by category:",
@@ -597,13 +617,25 @@ async def cmd_lang(msg: types.Message):
     lang = await get_lang(msg.chat.id)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru")],
+        [InlineKeyboardButton(text="🇺🇦 Українська", callback_data="lang:uk")],
         [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en")],
     ])
     await msg.answer(f"Текущий язык: {lang}\nCurrent language: {lang}", reply_markup=kb)
 
 
 def get_commands(lang, is_admin=False):
-    if lang == "en":
+    if lang == "uk":
+        cmds = [
+            BotCommand(command="start", description="Запуск бота"),
+            BotCommand(command="next", description="Найближчі гонки за категоріями"),
+            BotCommand(command="schedule", description="Розклад на тиждень"),
+            BotCommand(command="subscribe", description="Підписатися на розсилку"),
+            BotCommand(command="unsubscribe", description="Відписатися"),
+            BotCommand(command="tz", description="Часовий пояс"),
+            BotCommand(command="lang", description="Мова"),
+            BotCommand(command="help", description="Допомога"),
+        ]
+    elif lang == "en":
         cmds = [
             BotCommand(command="start", description="Start bot"),
             BotCommand(command="next", description="Nearest races by category"),
@@ -630,6 +662,11 @@ def get_commands(lang, is_admin=False):
                 BotCommand(command="refresh", description="Refresh schedule"),
                 BotCommand(command="stats", description="Statistics"),
             ]
+        elif lang == "uk":
+            cmds += [
+                BotCommand(command="refresh", description="Оновити розклад"),
+                BotCommand(command="stats", description="Статистика"),
+            ]
         else:
             cmds += [
                 BotCommand(command="refresh", description="Обновить расписание"),
@@ -647,7 +684,13 @@ async def cb_lang(callback: types.CallbackQuery):
         await bot.set_my_commands(get_commands(lang, is_admin), scope=BotCommandScopeChat(chat_id=callback.from_user.id))
     except Exception:
         pass
-    await callback.message.edit_text(f"✅ Language set: {lang}" if lang == "en" else f"✅ Язык установлен: {lang}")
+    if lang == "en":
+        txt = f"✅ Language set: {lang}"
+    elif lang == "uk":
+        txt = f"✅ Мову встановлено: {lang}"
+    else:
+        txt = f"✅ Язык установлен: {lang}"
+    await callback.message.edit_text(txt)
     await callback.answer()
 
 
