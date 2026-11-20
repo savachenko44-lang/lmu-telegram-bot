@@ -20,8 +20,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 PORT = int(os.getenv("PORT", "10000"))
-DATA_DIR = Path(__file__).parent / "data"
-SCHEDULE_PATH = DATA_DIR / "schedule.json"
+DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).parent / "data")))
+SCHEDULE_PATH = Path(__file__).parent / "data" / "schedule.json"
 RC_CACHE_PATH = DATA_DIR / "rc_schedule.json"
 RC_URL = "https://racecontrol.gg"
 DB_PATH = DATA_DIR / "bot.db"
@@ -630,7 +630,7 @@ async def main():
         await bot.set_webhook(WEBHOOK_URL)
 
     # RaceControl weekly schedule updates every Tuesday 10:00 UTC
-    scheduler.add_job(update_rc_cache, "cron", day_of_week="tue", hour=10, minute=0)
+    scheduler.add_job(update_rc_cache, "cron", day_of_week="tue", hour=10, minute=10)
     scheduler.add_job(weekly_digest, "cron", day_of_week="tue", hour=10, minute=30)
     scheduler.add_job(update_rc_cache, "interval", hours=2)
     scheduler.start()
