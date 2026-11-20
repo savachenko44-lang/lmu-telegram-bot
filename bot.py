@@ -351,6 +351,9 @@ async def cmd_start(msg: types.Message):
 @dp.message(Command("next"))
 async def cmd_next(msg: types.Message):
     now = datetime.now(timezone.utc)
+    # автообновление если нет будущих событий
+    if not any(parse_dt(e["start_utc"]) > now for e in load_events()):
+        await update_rc_cache()
     tz_name = await get_tz(msg.chat.id)
     off = await get_offset_minutes(msg.chat.id)
     tz = get_tzinfo(tz_name, off)
@@ -393,6 +396,8 @@ async def cmd_next(msg: types.Message):
 @dp.message(Command("schedule"))
 async def cmd_schedule(msg: types.Message):
     now = datetime.now(timezone.utc)
+    if not any(parse_dt(e["start_utc"]) > now for e in load_events()):
+        await update_rc_cache()
     tz_name = await get_tz(msg.chat.id)
     off = await get_offset_minutes(msg.chat.id)
     tz = get_tzinfo(tz_name, off)
@@ -627,7 +632,7 @@ async def main():
     # RaceControl weekly schedule updates every Tuesday 10:00 UTC
     scheduler.add_job(update_rc_cache, "cron", day_of_week="tue", hour=10, minute=0)
     scheduler.add_job(weekly_digest, "cron", day_of_week="tue", hour=10, minute=30)
-    scheduler.add_job(update_rc_cache, "interval", hours=6)
+    scheduler.add_job(update_rc_cache, "interval", hours=2)
     scheduler.start()
 
     await asyncio.Event().wait()
