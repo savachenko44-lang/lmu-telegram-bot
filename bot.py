@@ -11,6 +11,8 @@ import httpx
 from bs4 import BeautifulSoup
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import F
 from aiogram.filters import Command
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -388,26 +390,54 @@ async def cmd_subscribe(msg: types.Message):
     )
 
 
+TZ_OPTIONS = [
+    ("UTC", "UTC"),
+    ("Europe/Kiev", "Киев"),
+    ("Europe/Moscow", "Москва"),
+    ("Europe/London", "Лондон"),
+    ("Europe/Berlin", "Берлин"),
+    ("America/New_York", "Нью-Йорк"),
+    ("America/Los_Angeles", "Лос-Анджелес"),
+    ("Asia/Tokyo", "Токио"),
+    ("Asia/Dubai", "Дубай"),
+    ("Australia/Sydney", "Сидней"),
+]
+
+
+def tz_keyboard():
+    rows = []
+    for tz, label in TZ_OPTIONS:
+        rows.append([InlineKeyboardButton(text=f"{label} ({tz})", callback_data=f"tz:{tz}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 @dp.message(Command("tz"))
 async def cmd_tz(msg: types.Message):
     args = (msg.text or "").split(maxsplit=1)
-    if len(args) < 2:
-        tz = await get_tz(msg.chat.id)
-        await msg.answer(
-            f"Ваш часовой пояс: {tz}\n\n"
-            "Установить: /tz <IANA>, например:\n"
-            "/tz Europe/Kiev\n"
-            "/tz Europe/Moscow\n"
-            "/tz UTC\n\n"
-            "Список: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
-        )
+    if len(args) >= 2:
+        tz = args[1].strip()
+        if not valid_tz(tz):
+            await msg.answer("❌ Неверный часовой пояс. Пример: Europe/Kiev")
+            return
+        await set_tz(msg.chat.id, tz)
+        await msg.answer(f"✅ Часовой пояс установлен: {tz}")
         return
-    tz = args[1].strip()
+    tz = await get_tz(msg.chat.id)
+    await msg.answer(
+        f"Ваш часовой пояс: {tz}\n\nВыберите из списка:",
+        reply_markup=tz_keyboard()
+    )
+
+
+@dp.callback_query(F.data.startswith("tz:"))
+async def cb_tz(callback: types.CallbackQuery):
+    tz = callback.data.split(":", 1)[1]
     if not valid_tz(tz):
-        await msg.answer("❌ Неверный часовой пояс. Пример: Europe/Kiev")
+        await callback.answer("Неверный пояс", show_alert=True)
         return
-    await set_tz(msg.chat.id, tz)
-    await msg.answer(f"✅ Часовой пояс установлен: {tz}")
+    await set_tz(callback.from_user.id, tz)
+    await callback.message.edit_text(f"✅ Часовой пояс установлен: {tz}")
+    await callback.answer()
 
 
 @dp.message(Command("unsubscribe"))
