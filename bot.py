@@ -271,8 +271,9 @@ async def cmd_next(msg: types.Message):
     if not by_cat:
         await msg.answer("Событий не найдено. Попробуйте /refresh")
         return
-    # порядок категорий
+    # порядок категорий и медали
     order = ["Beginner", "Intermediate", "Advanced"]
+    medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
     lines = ["🏁 Ближайшие гонки по категориям:"]
     for cat in order + [c for c in by_cat if c not in order]:
         if cat not in by_cat:
@@ -281,10 +282,11 @@ async def cmd_next(msg: types.Message):
         delta = dt - now
         hours = int(delta.total_seconds() // 3600)
         mins = int((delta.total_seconds() % 3600) // 60)
+        medal = medals.get(cat, "🏅")
         lines.append(
-            f"\n[{cat}]\n"
+            f"\n{medal} {cat}\n"
             f"{e['title']} — {e['track']}\n"
-            f"Старт: {e['start_utc']} UTC (через {hours}ч {mins}мин)"
+            f"⏰ {dt.strftime('%H:%M')} UTC (через {hours}ч {mins}мин)"
         )
     await msg.answer("\n".join(lines))
 
