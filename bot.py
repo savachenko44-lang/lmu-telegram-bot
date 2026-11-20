@@ -932,6 +932,7 @@ async def weekly_digest():
                 lines.append(f"• {local.strftime('%d.%m %H:%M')} ({label}) — {e['title']} ({e['track']}) [{e['class']}]")
             text = "\n".join(lines)
         await safe_send(chat_id, text)
+        await asyncio.sleep(0.05)
 
 
 # ---------- Web ----------
