@@ -130,6 +130,12 @@ async def init_db():
             )
         """)
         # migration
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                chat_id BIGINT PRIMARY KEY,
+                first_seen TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
         await conn.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS lang TEXT DEFAULT 'ru'")
 
 
@@ -137,6 +143,14 @@ async def subscribe(chat_id):
     async with DB_POOL.acquire() as conn:
         await conn.execute(
             "INSERT INTO subscribers (chat_id) VALUES ($1) ON CONFLICT (chat_id) DO NOTHING",
+            chat_id
+        )
+
+
+async def track_user(chat_id):
+    async with DB_POOL.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO users (chat_id) VALUES ($1) ON CONFLICT (chat_id) DO NOTHING",
             chat_id
         )
 
@@ -355,6 +369,7 @@ async def update_rc_cache(force=False):
 # ---------- Handlers ----------
 @dp.message(Command("start"))
 async def cmd_start(msg: types.Message):
+    await track_user(msg.chat.id)
     lang = await get_lang(msg.chat.id)
     await msg.answer(
         tr("start", lang) +
@@ -365,6 +380,7 @@ async def cmd_start(msg: types.Message):
         f"/tz — часовой пояс / timezone\n"
         f"/lang — язык / language\n"
         f"/refresh — обновить расписание / refresh\n"
+        f"/stats — статистика / stats\n"
         f"/help — справка / help"
     )
 
@@ -605,6 +621,23 @@ async def cmd_refresh(msg: types.Message):
         await msg.answer(tr("refresh_ok", lang, n=n))
     else:
         await msg.answer(tr("refresh_fail", lang))
+
+
+@dp.message(Command("stats"))
+async def cmd_stats(msg: types.Message):
+    lang = await get_lang(msg.chat.id)
+    async with DB_POOL.acquire() as conn:
+        users = await conn.fetchval("SELECT COUNT(*) FROM users")
+        subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers")
+    await msg.answer(
+        f"📊 Статистика бота:\n"
+        f"Пользователей: {users}\n"
+        f"Подписчиков: {subs}"
+        if lang == "ru" else
+        f"📊 Bot stats:\n"
+        f"Users: {users}\n"
+        f"Subscribers: {subs}"
+    )
 
 
 @dp.message(Command("help"))
