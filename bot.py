@@ -21,6 +21,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 PORT = int(os.getenv("PORT", "10000"))
 DATABASE_URL = os.getenv("DATABASE_URL")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).parent / "data")))
 SCHEDULE_PATH = Path(__file__).parent / "data" / "schedule.json"
 RC_CACHE_PATH = DATA_DIR / "rc_schedule.json"
@@ -380,7 +381,6 @@ async def cmd_start(msg: types.Message):
         f"/tz — часовой пояс / timezone\n"
         f"/lang — язык / language\n"
         f"/refresh — обновить расписание / refresh\n"
-        f"/stats — статистика / stats\n"
         f"/help — справка / help"
     )
 
@@ -625,6 +625,8 @@ async def cmd_refresh(msg: types.Message):
 
 @dp.message(Command("stats"))
 async def cmd_stats(msg: types.Message):
+    if not ADMIN_CHAT_ID or str(msg.chat.id) != str(ADMIN_CHAT_ID):
+        return
     lang = await get_lang(msg.chat.id)
     async with DB_POOL.acquire() as conn:
         users = await conn.fetchval("SELECT COUNT(*) FROM users")
