@@ -379,8 +379,7 @@ async def cmd_start(msg: types.Message):
         f"/subscribe — {tr('subscribed', lang).split(chr(10))[0]}\n"
         f"/unsubscribe — {tr('unsubscribed', lang)}\n"
         f"/tz — часовой пояс / timezone\n"
-        f"/lang — язык / language\n"
-        f"/admin — админ-панель (только для админа)"
+        f"/lang — язык / language"
     )
 
 
