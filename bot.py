@@ -394,8 +394,8 @@ async def health(request):
 async def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     await init_db()
-    # initial fetch
-    await update_rc_cache()
+    # initial fetch in background (don't block startup)
+    asyncio.create_task(update_rc_cache())
 
     app = web.Application()
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
