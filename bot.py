@@ -392,6 +392,9 @@ async def update_rc_cache(force=False):
 async def cmd_start(msg: types.Message):
     await track_user(msg.chat.id)
     lang = await get_lang(msg.chat.id)
+    sub_status = "✅ " + ("Вы подписаны на рассылку" if lang == "ru" else "Ви підписані на розсилку" if lang == "uk" else "You are subscribed")
+    if not await is_subscribed(msg.chat.id):
+        sub_status = "❌ " + ("Вы не подписаны. /subscribe" if lang == "ru" else "Ви не підписані. /subscribe" if lang == "uk" else "Not subscribed. /subscribe")
     await msg.answer(
         tr("start", lang) +
         f"/next — {tr('next', lang)}\n"
@@ -399,7 +402,8 @@ async def cmd_start(msg: types.Message):
         f"/subscribe — {tr('subscribed', lang).split(chr(10))[0]}\n"
         f"/unsubscribe — {tr('unsubscribed', lang)}\n"
         f"/tz — часовой пояс / timezone\n"
-        f"/lang — язык / language"
+        f"/lang — язык / language\n"
+        f"\n{sub_status}"
     )
 
 
