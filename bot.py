@@ -475,6 +475,9 @@ async def cmd_schedule(msg: types.Message):
                 lines.append("")
         lines.append("")
     await msg.answer("\n".join(lines))
+
+
+@dp.message(Command("subscribe"))
 async def cmd_subscribe(msg: types.Message):
     try:
         await subscribe(msg.chat.id)
