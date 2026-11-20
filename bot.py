@@ -451,11 +451,25 @@ TZ_OPTIONS = [
     ("Europe/Moscow", "Москва"),
     ("Europe/London", "Лондон"),
     ("Europe/Berlin", "Берлин"),
+    ("Europe/Paris", "Париж"),
+    ("Europe/Rome", "Рим"),
+    ("Europe/Madrid", "Мадрид"),
+    ("Europe/Warsaw", "Варшава"),
+    ("Europe/Istanbul", "Стамбул"),
     ("America/New_York", "Нью-Йорк"),
+    ("America/Chicago", "Чикаго"),
+    ("America/Denver", "Денвер"),
     ("America/Los_Angeles", "Лос-Анджелес"),
+    ("America/Toronto", "Торонто"),
+    ("America/Sao_Paulo", "Сан-Паулу"),
     ("Asia/Tokyo", "Токио"),
+    ("Asia/Shanghai", "Шанхай"),
     ("Asia/Dubai", "Дубай"),
+    ("Asia/Kolkata", "Калькутта"),
+    ("Asia/Singapore", "Сингапур"),
+    ("Asia/Seoul", "Сеул"),
     ("Australia/Sydney", "Сидней"),
+    ("Pacific/Auckland", "Окленд"),
 ]
 
 
@@ -463,6 +477,7 @@ def tz_keyboard():
     rows = []
     for tz, label in TZ_OPTIONS:
         rows.append([InlineKeyboardButton(text=f"{label} ({tz})", callback_data=f"tz:{tz}")])
+    rows.append([InlineKeyboardButton(text="✏️ Ввести вручную (+3 / Europe/...)", callback_data="tz:manual")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -506,6 +521,16 @@ async def cb_tz(callback: types.CallbackQuery):
         await set_tz(callback.from_user.id, "UTC", off)
         sign = "+" if off >= 0 else ""
         await callback.message.edit_text(f"✅ Часовой пояс установлен: UTC{sign}{off//60}:{abs(off)%60:02d}")
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "tz:manual")
+async def cb_tz_manual(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        "Введите часовой пояс командой:\n"
+        "/tz +3  или  /tz Europe/Kyiv\n\n"
+        "Поддерживаются IANA-зоны и смещения (+3, -5, +05:30)."
+    )
     await callback.answer()
 
 
