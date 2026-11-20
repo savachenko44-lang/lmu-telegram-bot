@@ -34,6 +34,57 @@ DB_POOL = None
 MONTHS = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
           "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
 
+T = {
+    "ru": {
+        "start": "Привет! Я бот расписания Le Mans Ultimate (данные с RaceControl.gg).\n\nКоманды:\n",
+        "next": "🏁 Ближайшие гонки по категориям:",
+        "schedule": "📅 Расписание на неделю Daily:",
+        "no_events": "Событий не найдено. Попробуйте /refresh",
+        "no_week": "На ближайшие 7 дней событий нет. Попробуйте /refresh",
+        "refreshing": "🔄 Расписание обновляется, попробуйте через минуту.",
+        "refresh_ok": "✅ Загружено событий: {n}",
+        "refresh_fail": "❌ Не удалось получить данные. Попробуйте позже.",
+        "subscribed": "✅ Вы подписаны на еженедельную рассылку!\nКаждый вторник в 10:30 UTC буду присылать\nрасписание гонок на ближайшую неделю.\n\nОтписаться: /unsubscribe",
+        "unsubscribed": "❌ Вы отписаны от уведомлений.",
+        "help": "Бот расписания LMU (данные RaceControl.gg).",
+        "tz_current": "Ваш часовой пояс: {tz}\n\nВыберите из списка или введите вручную:",
+        "tz_set": "✅ Часовой пояс установлен: {tz}",
+        "tz_invalid": "❌ Неверный часовой пояс. Пример: Europe/Kyiv или +3",
+        "weekly_empty": "📅 На ближайшую неделю событий нет.",
+        "weekly_title": "📅 Расписание LMU на неделю Daily:",
+        "dur": "⏱ Длительность: {dur}",
+        "start_in": "через {h}ч {m}мин",
+    },
+    "en": {
+        "start": "Hi! I'm the Le Mans Ultimate schedule bot (data from RaceControl.gg).\n\nCommands:\n",
+        "next": "🏁 Nearest races by category:",
+        "schedule": "📅 Weekly schedule Daily:",
+        "no_events": "No events found. Try /refresh",
+        "no_week": "No events in the next 7 days. Try /refresh",
+        "refreshing": "🔄 Schedule is updating, try again in a minute.",
+        "refresh_ok": "✅ Loaded events: {n}",
+        "refresh_fail": "❌ Failed to fetch data. Try later.",
+        "subscribed": "✅ You are subscribed to the weekly digest!\nEvery Tuesday at 10:30 UTC I'll send\nthe race schedule for the upcoming week.\n\nUnsubscribe: /unsubscribe",
+        "unsubscribed": "❌ You are unsubscribed from notifications.",
+        "help": "LMU schedule bot (data from RaceControl.gg).",
+        "tz_current": "Your timezone: {tz}\n\nChoose from the list or enter manually:",
+        "tz_set": "✅ Timezone set: {tz}",
+        "tz_invalid": "❌ Invalid timezone. Example: Europe/Kyiv or +3",
+        "weekly_empty": "📅 No events in the upcoming week.",
+        "weekly_title": "📅 LMU Weekly Schedule Daily:",
+        "dur": "⏱ Duration: {dur}",
+        "start_in": "in {h}h {m}min",
+    },
+}
+
+
+def tr(key, lang="ru", **kwargs):
+    lang = lang if lang in T else "ru"
+    text = T[lang].get(key, T["ru"].get(key, key))
+    if kwargs:
+        text = text.format(**kwargs)
+    return text
+
 
 # ---------- Data ----------
 def parse_dt(s):
@@ -66,7 +117,8 @@ async def init_db():
                 notify_start INTEGER DEFAULT 1,
                 daily INTEGER DEFAULT 1,
                 tz TEXT DEFAULT 'UTC',
-                offset_minutes INTEGER DEFAULT 0
+                offset_minutes INTEGER DEFAULT 0,
+                lang TEXT DEFAULT 'ru'
             )
         """)
         await conn.execute("""
@@ -77,6 +129,8 @@ async def init_db():
                 PRIMARY KEY (event_id, chat_id, kind)
             )
         """)
+        # migration
+        await conn.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS lang TEXT DEFAULT 'ru'")
 
 
 async def subscribe(chat_id):
@@ -101,7 +155,7 @@ async def is_subscribed(chat_id):
 async def all_subscribers():
     async with DB_POOL.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT chat_id, notify_24h, notify_1h, notify_start, daily, tz, offset_minutes FROM subscribers"
+            "SELECT chat_id, notify_24h, notify_1h, notify_start, daily, tz, offset_minutes, lang FROM subscribers"
         )
     return [tuple(r.values()) for r in rows]
 
@@ -116,6 +170,18 @@ async def get_offset_minutes(chat_id):
     async with DB_POOL.acquire() as conn:
         row = await conn.fetchrow("SELECT offset_minutes FROM subscribers WHERE chat_id=$1", chat_id)
     return row["offset_minutes"] if row else 0
+
+
+async def get_lang(chat_id):
+    async with DB_POOL.acquire() as conn:
+        row = await conn.fetchrow("SELECT lang FROM subscribers WHERE chat_id=$1", chat_id)
+    return (row["lang"] if row and row["lang"] else "ru")
+
+
+async def set_lang(chat_id, lang):
+    await subscribe(chat_id)
+    async with DB_POOL.acquire() as conn:
+        await conn.execute("UPDATE subscribers SET lang=$1 WHERE chat_id=$2", lang, chat_id)
 
 
 async def set_tz(chat_id, tz=None, offset_minutes=0):
@@ -289,16 +355,17 @@ async def update_rc_cache(force=False):
 # ---------- Handlers ----------
 @dp.message(Command("start"))
 async def cmd_start(msg: types.Message):
+    lang = await get_lang(msg.chat.id)
     await msg.answer(
-        "Привет! Я бот расписания Le Mans Ultimate (данные с RaceControl.gg).\n\n"
-        "Команды:\n"
-        "/next — следующее событие\n"
-        "/schedule — расписание недели\n"
-        "/subscribe — подписаться на еженедельную рассылку\n"
-        "/unsubscribe — отписаться\n"
-        "/tz — установить часовой пояс\n"
-        "/refresh — обновить расписание с RaceControl\n"
-        "/help — справка"
+        tr("start", lang) +
+        f"/next — {tr('next', lang)}\n"
+        f"/schedule — {tr('schedule', lang)}\n"
+        f"/subscribe — {tr('subscribed', lang).split(chr(10))[0]}\n"
+        f"/unsubscribe — {tr('unsubscribed', lang)}\n"
+        f"/tz — часовой пояс / timezone\n"
+        f"/lang — язык / language\n"
+        f"/refresh — обновить расписание / refresh\n"
+        f"/help — справка / help"
     )
 
 
@@ -343,24 +410,26 @@ async def cmd_tz(msg: types.Message):
     args = (msg.text or "").split(maxsplit=1)
     if len(args) >= 2:
         tz = args[1].strip()
+        lang = await get_lang(msg.chat.id)
         if not valid_tz(tz):
-            await msg.answer("❌ Неверный часовой пояс. Пример: Europe/Kyiv или +3")
+            await msg.answer(tr("tz_invalid", lang))
             return
+        lang = await get_lang(msg.chat.id)
         off = parse_offset(tz)
         if off is None:
             await set_tz(msg.chat.id, tz, 0)
-            await msg.answer(f"✅ Часовой пояс установлен: {tz}")
+            await msg.answer(tr("tz_set", lang, tz=tz))
         else:
             await set_tz(msg.chat.id, "UTC", off)
             sign = "+" if off >= 0 else ""
-            await msg.answer(f"✅ Часовой пояс установлен: UTC{sign}{off//60}:{abs(off)%60:02d}")
+            await msg.answer(tr("tz_set", lang, tz=f"UTC{sign}{off//60}:{abs(off)%60:02d}"))
         return
+    lang = await get_lang(msg.chat.id)
     tz = await get_tz(msg.chat.id)
     off = await get_offset_minutes(msg.chat.id)
     label = tz_label(tz, off)
     await msg.answer(
-        f"Ваш часовой пояс: {label}\n\n"
-        "Выберите из списка или введите вручную:",
+        tr("tz_current", lang, tz=label) + "\n",
         reply_markup=tz_keyboard()
     )
 
@@ -375,13 +444,14 @@ async def cb_tz(callback: types.CallbackQuery):
         await callback.answer("Неверный пояс", show_alert=True)
         return
     off = parse_offset(tz)
+    lang = await get_lang(callback.from_user.id)
     if off is None:
         await set_tz(callback.from_user.id, tz, 0)
-        await callback.message.edit_text(f"✅ Часовой пояс установлен: {tz}")
+        await callback.message.edit_text(tr("tz_set", lang, tz=tz))
     else:
         await set_tz(callback.from_user.id, "UTC", off)
         sign = "+" if off >= 0 else ""
-        await callback.message.edit_text(f"✅ Часовой пояс установлен: UTC{sign}{off//60}:{abs(off)%60:02d}")
+        await callback.message.edit_text(tr("tz_set", lang, tz=f"UTC{sign}{off//60}:{abs(off)%60:02d}"))
     await callback.answer()
 
 
@@ -402,6 +472,7 @@ async def cmd_next(msg: types.Message):
         asyncio.create_task(update_rc_cache())
         await msg.answer("🔄 Расписание обновляется, попробуйте /next через минуту.")
         return
+    lang = await get_lang(msg.chat.id)
     tz_name = await get_tz(msg.chat.id)
     off = await get_offset_minutes(msg.chat.id)
     tz = get_tzinfo(tz_name, off)
@@ -419,7 +490,7 @@ async def cmd_next(msg: types.Message):
         return
     order = ["Beginner", "Intermediate", "Advanced"]
     medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
-    lines = ["🏁 Ближайшие гонки по категориям:"]
+    lines = [tr("next", lang)]
     for cat in order + [c for c in by_cat if c not in order]:
         if cat not in by_cat:
             continue
@@ -429,12 +500,12 @@ async def cmd_next(msg: types.Message):
         mins = int((delta.total_seconds() % 3600) // 60)
         medal = medals.get(cat, "🏅")
         dur = e.get("duration", "")
-        dur_line = f"\n⏱ Длительность: {dur}" if dur else ""
+        dur_line = f"\n{tr('dur', lang, dur=dur)}" if dur else ""
         local = dt.astimezone(tz)
         lines.append(
             f"\n{medal} {cat} {medal}\n"
             f"{e['title']} — {e['track']}\n"
-            f"⏰ {local.strftime('%H:%M')} ({label}) (через {hours}ч {mins}мин){dur_line}"
+            f"⏰ {local.strftime('%H:%M')} ({label}) ({tr('start_in', lang, h=hours, m=mins)}){dur_line}"
         )
     await msg.answer("\n".join(lines))
 
@@ -446,6 +517,7 @@ async def cmd_schedule(msg: types.Message):
         asyncio.create_task(update_rc_cache())
         await msg.answer("🔄 Расписание обновляется, попробуйте /schedule через минуту.")
         return
+    lang = await get_lang(msg.chat.id)
     tz_name = await get_tz(msg.chat.id)
     off = await get_offset_minutes(msg.chat.id)
     tz = get_tzinfo(tz_name, off)
@@ -459,11 +531,11 @@ async def cmd_schedule(msg: types.Message):
         key = (e.get("title"), e.get("track"))
         by_cat.setdefault(cat, {}).setdefault(key, []).append(dt)
     if not by_cat:
-        await msg.answer("На ближайшие 7 дней событий нет. Попробуйте /refresh")
+        await msg.answer(tr("no_week", lang))
         return
     order = ["Beginner", "Intermediate", "Advanced"]
     medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
-    lines = ["📅 Расписание на неделю Daily:"]
+    lines = [tr("schedule", lang)]
     for cat in order + [c for c in by_cat if c not in order]:
         if cat not in by_cat:
             continue
@@ -494,12 +566,8 @@ async def cmd_schedule(msg: types.Message):
 async def cmd_subscribe(msg: types.Message):
     try:
         await subscribe(msg.chat.id)
-        await msg.answer(
-            "✅ Вы подписаны на еженедельную рассылку!\n"
-            "Каждый вторник в 10:30 UTC буду присылать\n"
-            "расписание гонок на ближайшую неделю.\n\n"
-            "Отписаться: /unsubscribe"
-        )
+        lang = await get_lang(msg.chat.id)
+        await msg.answer(tr("subscribed", lang))
     except Exception as ex:
         await msg.answer(f"❌ Ошибка подписки: {ex}")
 
@@ -510,26 +578,47 @@ async def cmd_unsubscribe(msg: types.Message):
     await msg.answer("❌ Вы отписаны от уведомлений.")
 
 
+@dp.message(Command("lang"))
+async def cmd_lang(msg: types.Message):
+    lang = await get_lang(msg.chat.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru")],
+        [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en")],
+    ])
+    await msg.answer(f"Текущий язык: {lang}\nCurrent language: {lang}", reply_markup=kb)
+
+
+@dp.callback_query(F.data.startswith("lang:"))
+async def cb_lang(callback: types.CallbackQuery):
+    lang = callback.data.split(":", 1)[1]
+    await set_lang(callback.from_user.id, lang)
+    await callback.message.edit_text(f"✅ Language set: {lang}")
+    await callback.answer()
+
+
 @dp.message(Command("refresh"))
 async def cmd_refresh(msg: types.Message):
-    await msg.answer("🔄 Обновляю расписание с RaceControl.gg...")
+    lang = await get_lang(msg.chat.id)
+    await msg.answer("🔄 " + ("Обновляю расписание..." if lang == "ru" else "Updating schedule..."))
     n = await update_rc_cache()
     if n:
-        await msg.answer(f"✅ Загружено событий: {n}")
+        await msg.answer(tr("refresh_ok", lang, n=n))
     else:
-        await msg.answer("❌ Не удалось получить данные. Попробуйте позже.")
+        await msg.answer(tr("refresh_fail", lang))
 
 
 @dp.message(Command("help"))
 async def cmd_help(msg: types.Message):
+    lang = await get_lang(msg.chat.id)
     await msg.answer(
-        "Бот расписания LMU (данные RaceControl.gg).\n"
-        "/next — следующее событие\n"
-        "/schedule — расписание недели\n"
-        "/subscribe — подписаться на еженедельную рассылку\n"
-        "/unsubscribe — отписаться\n"
-        "/tz — установить часовой пояс\n"
-        "/refresh — обновить расписание"
+        tr("help", lang) + "\n"
+        "/next — " + tr("next", lang) + "\n"
+        "/schedule — " + tr("schedule", lang) + "\n"
+        "/subscribe — " + tr("subscribed", lang).split(chr(10))[0] + "\n"
+        "/unsubscribe — " + tr("unsubscribed", lang) + "\n"
+        "/tz — " + ("часовой пояс" if lang == "ru" else "timezone") + "\n"
+        "/lang — " + ("язык" if lang == "ru" else "language") + "\n"
+        "/refresh — " + ("обновить расписание" if lang == "ru" else "refresh schedule")
     )
 
 
@@ -552,15 +641,16 @@ async def weekly_digest():
     subs = await all_subscribers()
     if not subs:
         return
-    for chat_id, n24, n1, ns, daily, tz_name, off in subs:
+    for chat_id, n24, n1, ns, daily, tz_name, off, lang in subs:
         if not daily:
             continue
         tz = get_tzinfo(tz_name or "UTC", off or 0)
         label = tz_label(tz_name or "UTC", off or 0)
+        lang = lang or "ru"
         if not events:
-            text = "📅 На ближайшую неделю событий нет."
+            text = tr("weekly_empty", lang)
         else:
-            lines = ["📅 Расписание LMU на неделю Daily:"]
+            lines = [tr("weekly_title", lang)]
             for dt, e in events[:40]:
                 local = dt.astimezone(tz)
                 lines.append(f"• {local.strftime('%d.%m %H:%M')} ({label}) — {e['title']} ({e['track']}) [{e['class']}]")
