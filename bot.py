@@ -399,7 +399,8 @@ async def cmd_start(msg: types.Message):
         [InlineKeyboardButton(text="🏁 " + ("Ближайшие" if lang == "ru" else "Найближчі" if lang == "uk" else "Nearest"), callback_data="menu:next")],
         [InlineKeyboardButton(text="📅 " + ("Расписание" if lang == "ru" else "Розклад" if lang == "uk" else "Schedule"), callback_data="menu:schedule")],
         [InlineKeyboardButton(text=("✅ Подписаться" if lang == "ru" else "✅ Підписатися" if lang == "uk" else "✅ Subscribe") if not await is_subscribed(msg.chat.id) else ("❌ Отписаться" if lang == "ru" else "❌ Відписатися" if lang == "uk" else "❌ Unsubscribe"), callback_data="menu:sub" if not await is_subscribed(msg.chat.id) else "menu:unsub")],
-        [InlineKeyboardButton(text="⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), callback_data="menu:settings")],
+        [InlineKeyboardButton(text="🕐 " + ("Часовой пояс" if lang == "ru" else "Часовий пояс" if lang == "uk" else "Timezone"), callback_data="settings:tz")],
+        [InlineKeyboardButton(text="🌐 " + ("Язык" if lang == "ru" else "Мова" if lang == "uk" else "Language"), callback_data="settings:lang")],
     ])
     if ADMIN_CHAT_ID and str(msg.chat.id) == str(ADMIN_CHAT_ID):
         kb.inline_keyboard.append([InlineKeyboardButton(text="🔧 Admin", callback_data="menu:admin")])
