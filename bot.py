@@ -254,7 +254,7 @@ async def cmd_start(msg: types.Message):
         "Привет! Я бот расписания Le Mans Ultimate (данные с RaceControl.gg).\n\n"
         "Команды:\n"
         "/next — следующее событие\n"
-        "/schedule — ближайшие 7 дней\n"
+        "/schedule — расписание недели\n"
         "/subscribe — подписаться на еженедельную рассылку\n"
         "/unsubscribe — отписаться\n"
         "/refresh — обновить расписание с RaceControl\n"
@@ -371,7 +371,7 @@ async def cmd_help(msg: types.Message):
     await msg.answer(
         "Бот расписания LMU (данные RaceControl.gg).\n"
         "/next — следующее событие\n"
-        "/schedule — ближайшие 7 дней\n"
+        "/schedule — расписание недели\n"
         "/subscribe — подписаться на еженедельную рассылку\n"
         "/unsubscribe — отписаться\n"
         "/refresh — обновить расписание"
