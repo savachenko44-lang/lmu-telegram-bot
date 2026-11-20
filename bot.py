@@ -3,16 +3,15 @@ import json
 import asyncio
 import re
 from datetime import datetime, timezone, timedelta
-from zoneinfo import ZoneInfo
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-import aiosqlite
+import asyncpg
 import httpx
 from bs4 import BeautifulSoup
 from aiohttp import web
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram import F
 from aiogram.filters import Command
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -20,15 +19,16 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 PORT = int(os.getenv("PORT", "10000"))
+DATABASE_URL = os.getenv("DATABASE_URL")
 DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).parent / "data")))
 SCHEDULE_PATH = Path(__file__).parent / "data" / "schedule.json"
 RC_CACHE_PATH = DATA_DIR / "rc_schedule.json"
 RC_URL = "https://racecontrol.gg"
-DB_PATH = DATA_DIR / "bot.db"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 scheduler = AsyncIOScheduler(timezone="UTC")
+DB_POOL = None
 
 MONTHS = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
           "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
@@ -40,7 +40,6 @@ def parse_dt(s):
 
 
 def load_events():
-    # Prefer fresh RaceControl cache
     if RC_CACHE_PATH.exists():
         try:
             with open(RC_CACHE_PATH, encoding="utf-8") as f:
@@ -53,53 +52,140 @@ def load_events():
         return json.load(f)
 
 
-def next_event():
-    now = datetime.now(timezone.utc)
-    events = sorted(load_events(), key=lambda e: e["start_utc"])
-    for e in events:
-        dt = parse_dt(e["start_utc"])
-        if dt > now:
-            return e, dt
-    return None, None
+# ---------- DB ----------
+async def init_db():
+    global DB_POOL
+    DB_POOL = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+    async with DB_POOL.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS subscribers (
+                chat_id BIGINT PRIMARY KEY,
+                notify_24h INTEGER DEFAULT 1,
+                notify_1h INTEGER DEFAULT 1,
+                notify_start INTEGER DEFAULT 1,
+                daily INTEGER DEFAULT 1,
+                tz TEXT DEFAULT 'UTC',
+                offset_minutes INTEGER DEFAULT 0
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS sent (
+                event_id TEXT,
+                chat_id BIGINT,
+                kind TEXT,
+                PRIMARY KEY (event_id, chat_id, kind)
+            )
+        """)
 
 
-def events_in_range(hours_from, hours_to):
-    now = datetime.now(timezone.utc)
-    lo = now + timedelta(hours=hours_from)
-    hi = now + timedelta(hours=hours_to)
-    res = []
-    for e in load_events():
-        dt = parse_dt(e["start_utc"])
-        if lo <= dt <= hi:
-            res.append((dt, e))
-    res.sort(key=lambda x: x[0])
-    return res
+async def subscribe(chat_id):
+    async with DB_POOL.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO subscribers (chat_id) VALUES ($1) ON CONFLICT (chat_id) DO NOTHING",
+            chat_id
+        )
 
 
-def today_events():
-    now = datetime.now(timezone.utc)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
-    res = []
-    for e in load_events():
-        dt = parse_dt(e["start_utc"])
-        if start <= dt < end:
-            res.append((dt, e))
-    res.sort(key=lambda x: x[0])
-    return res
+async def unsubscribe(chat_id):
+    async with DB_POOL.acquire() as conn:
+        await conn.execute("DELETE FROM subscribers WHERE chat_id=$1", chat_id)
 
 
-def tomorrow_events():
-    now = datetime.now(timezone.utc)
-    start = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
-    res = []
-    for e in load_events():
-        dt = parse_dt(e["start_utc"])
-        if start <= dt < end:
-            res.append((dt, e))
-    res.sort(key=lambda x: x[0])
-    return res
+async def is_subscribed(chat_id):
+    async with DB_POOL.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM subscribers WHERE chat_id=$1", chat_id)
+    return row is not None
+
+
+async def all_subscribers():
+    async with DB_POOL.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT chat_id, notify_24h, notify_1h, notify_start, daily, tz, offset_minutes FROM subscribers"
+        )
+    return [tuple(r.values()) for r in rows]
+
+
+async def get_tz(chat_id):
+    async with DB_POOL.acquire() as conn:
+        row = await conn.fetchrow("SELECT tz FROM subscribers WHERE chat_id=$1", chat_id)
+    return row["tz"] if row and row["tz"] else "UTC"
+
+
+async def get_offset_minutes(chat_id):
+    async with DB_POOL.acquire() as conn:
+        row = await conn.fetchrow("SELECT offset_minutes FROM subscribers WHERE chat_id=$1", chat_id)
+    return row["offset_minutes"] if row else 0
+
+
+async def set_tz(chat_id, tz=None, offset_minutes=0):
+    await subscribe(chat_id)
+    async with DB_POOL.acquire() as conn:
+        await conn.execute(
+            "UPDATE subscribers SET tz=$1, offset_minutes=$2 WHERE chat_id=$3",
+            tz or "UTC", offset_minutes, chat_id
+        )
+
+
+def valid_tz(tz):
+    if tz is None:
+        return False
+    try:
+        ZoneInfo(tz)
+        return True
+    except Exception:
+        return parse_offset(tz) is not None
+
+
+def parse_offset(s):
+    s = s.strip().replace("UTC", "").replace("utc", "").strip()
+    m = re.match(r"^([+-])(\d{1,2})(?::?(\d{2}))?$", s)
+    if not m:
+        return None
+    sign = 1 if m.group(1) == "+" else -1
+    hours = int(m.group(2))
+    mins = int(m.group(3)) if m.group(3) else 0
+    return sign * (hours * 60 + mins)
+
+
+def get_tzinfo(tz_name, offset_minutes=0):
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return timezone(timedelta(minutes=offset_minutes))
+
+
+def tz_label(tz_name, offset_minutes=0):
+    if tz_name and tz_name != "UTC":
+        return tz_name
+    sign = "+" if offset_minutes >= 0 else ""
+    h = offset_minutes // 60
+    m = abs(offset_minutes) % 60
+    if m:
+        return f"UTC{sign}{h}:{m:02d}"
+    return f"UTC{sign}{h}"
+
+
+async def get_tzinfo_for(chat_id):
+    tz = await get_tz(chat_id)
+    off = await get_offset_minutes(chat_id)
+    return get_tzinfo(tz, off), tz, off
+
+
+async def already_sent(event_id, chat_id, kind):
+    async with DB_POOL.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT 1 FROM sent WHERE event_id=$1 AND chat_id=$2 AND kind=$3",
+            event_id, chat_id, kind
+        )
+    return row is not None
+
+
+async def mark_sent(event_id, chat_id, kind):
+    async with DB_POOL.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO sent (event_id, chat_id, kind) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
+            event_id, chat_id, kind
+        )
 
 
 # ---------- RaceControl parser ----------
@@ -119,7 +205,6 @@ async def fetch_racecontrol_events():
         image = img_el.get("src") if img_el else ""
         tier_el = card.find("span", class_="tier-badge")
         tier = tier_el.get_text(strip=True) if tier_el else ""
-        # track: find race-header containing "Track"
         track = ""
         duration = ""
         for header in card.find_all("div", class_="race-header"):
@@ -130,14 +215,12 @@ async def fetch_racecontrol_events():
                     track = spans[-1].get_text(strip=True)
                 if "duration" in label:
                     duration = spans[-1].get_text(strip=True)
-        # times
         times = []
         marquee = card.find("div", class_="marquee-content")
         if marquee:
             for badge in marquee.find_all("span", class_="badge"):
                 times.append(badge.get_text(strip=True))
         for t in times:
-            # format: "19 Nov at 3:00pm"
             m = re.match(r"(\d{1,2})\s+(\w{3})\s+at\s+(\d{1,2}):(\d{2})(am|pm)", t, re.I)
             if not m:
                 continue
@@ -168,10 +251,9 @@ async def fetch_racecontrol_events():
                 "series": "Daily Race",
                 "track": track,
                 "class": tier.capitalize() if tier else "",
+                "duration": duration,
                 "start_utc": dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "sessions": [{"name": "Race", "start_utc": dt.strftime("%Y-%m-%dT%H:%M:%SZ")}],
-                "duration": duration,
-                "image": image,
                 "url": RC_URL
             })
     return events
@@ -190,148 +272,6 @@ async def update_rc_cache():
     return 0
 
 
-# ---------- DB ----------
-async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS subscribers (
-                chat_id INTEGER PRIMARY KEY,
-                notify_24h INTEGER DEFAULT 1,
-                notify_1h INTEGER DEFAULT 1,
-                notify_start INTEGER DEFAULT 1,
-                daily INTEGER DEFAULT 1,
-                tz TEXT DEFAULT 'UTC',
-                offset_minutes INTEGER DEFAULT 0
-            )
-        """)
-        # migration: add tz column if missing
-        try:
-            await db.execute("ALTER TABLE subscribers ADD COLUMN tz TEXT DEFAULT 'UTC'")
-        except Exception:
-            pass
-        # migration: add offset_minutes column if missing
-        try:
-            await db.execute("ALTER TABLE subscribers ADD COLUMN offset_minutes INTEGER DEFAULT 0")
-        except Exception:
-            pass
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS sent (
-                event_id TEXT,
-                chat_id INTEGER,
-                kind TEXT,
-                PRIMARY KEY (event_id, chat_id, kind)
-            )
-        """)
-        await db.commit()
-
-
-async def is_subscribed(chat_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT 1 FROM subscribers WHERE chat_id=?", (chat_id,))
-        return await cur.fetchone() is not None
-
-
-async def subscribe(chat_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("INSERT OR IGNORE INTO subscribers (chat_id) VALUES (?)", (chat_id,))
-        await db.commit()
-
-
-async def unsubscribe(chat_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM subscribers WHERE chat_id=?", (chat_id,))
-        await db.commit()
-
-
-async def get_tz(chat_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT tz FROM subscribers WHERE chat_id=?", (chat_id,))
-        row = await cur.fetchone()
-    if row and row[0]:
-        return row[0]
-    return "UTC"
-
-
-async def get_offset_minutes(chat_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT offset_minutes FROM subscribers WHERE chat_id=?", (chat_id,))
-        row = await cur.fetchone()
-    return row[0] if row else 0
-
-
-async def set_tz(chat_id, tz=None, offset_minutes=0):
-    await subscribe(chat_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE subscribers SET tz=?, offset_minutes=? WHERE chat_id=?",
-                        (tz or "UTC", offset_minutes, chat_id))
-        await db.commit()
-
-
-def parse_offset(s):
-    """Parse '+3', '-5', '+05:30', 'UTC+3' etc. Return minutes or None."""
-    s = s.strip().replace("UTC", "").replace("utc", "").strip()
-    m = re.match(r"^([+-])(\d{1,2})(?::?(\d{2}))?$", s)
-    if not m:
-        return None
-    sign = 1 if m.group(1) == "+" else -1
-    hours = int(m.group(2))
-    mins = int(m.group(3)) if m.group(3) else 0
-    return sign * (hours * 60 + mins)
-
-
-def valid_tz(tz):
-    if tz is None:
-        return False
-    try:
-        ZoneInfo(tz)
-        return True
-    except Exception:
-        return parse_offset(tz) is not None
-
-
-def get_tzinfo(tz_name, offset_minutes=0):
-    try:
-        return ZoneInfo(tz_name)
-    except Exception:
-        return timezone(timedelta(minutes=offset_minutes))
-
-
-def tz_label(tz_name, offset_minutes=0):
-    if tz_name and tz_name != "UTC":
-        return tz_name
-    sign = "+" if offset_minutes >= 0 else ""
-    h = offset_minutes // 60
-    m = abs(offset_minutes) % 60
-    if m:
-        return f"UTC{sign}{h}:{m:02d}"
-    return f"UTC{sign}{h}"
-
-
-async def get_tzinfo_for(chat_id):
-    tz = await get_tz(chat_id)
-    off = await get_offset_minutes(chat_id)
-    return get_tzinfo(tz, off)
-
-
-async def all_subscribers():
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT chat_id, notify_24h, notify_1h, notify_start, daily, tz, offset_minutes FROM subscribers")
-        rows = await cur.fetchall()
-    return rows
-
-
-async def already_sent(event_id, chat_id, kind):
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT 1 FROM sent WHERE event_id=? AND chat_id=? AND kind=?", (event_id, chat_id, kind))
-        return await cur.fetchone() is not None
-
-
-async def mark_sent(event_id, chat_id, kind):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("INSERT OR IGNORE INTO sent VALUES (?,?,?)", (event_id, chat_id, kind))
-        await db.commit()
-
-
 # ---------- Handlers ----------
 @dp.message(Command("start"))
 async def cmd_start(msg: types.Message):
@@ -345,108 +285,6 @@ async def cmd_start(msg: types.Message):
         "/tz — установить часовой пояс\n"
         "/refresh — обновить расписание с RaceControl\n"
         "/help — справка"
-    )
-
-
-@dp.message(Command("next"))
-async def cmd_next(msg: types.Message):
-    now = datetime.now(timezone.utc)
-    # автообновление если нет будущих событий
-    if not any(parse_dt(e["start_utc"]) > now for e in load_events()):
-        await update_rc_cache()
-    tz_name = await get_tz(msg.chat.id)
-    off = await get_offset_minutes(msg.chat.id)
-    tz = get_tzinfo(tz_name, off)
-    label = tz_label(tz_name, off)
-    # ближайшее событие по каждой категории
-    by_cat = {}
-    for e in load_events():
-        dt = parse_dt(e["start_utc"])
-        if dt <= now:
-            continue
-        cat = (e.get("class") or "").strip() or "Other"
-        if cat not in by_cat or dt < by_cat[cat][0]:
-            by_cat[cat] = (dt, e)
-    if not by_cat:
-        await msg.answer("Событий не найдено. Попробуйте /refresh")
-        return
-    # порядок категорий и медали
-    order = ["Beginner", "Intermediate", "Advanced"]
-    medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
-    lines = ["🏁 Ближайшие гонки по категориям:"]
-    for cat in order + [c for c in by_cat if c not in order]:
-        if cat not in by_cat:
-            continue
-        dt, e = by_cat[cat]
-        delta = dt - now
-        hours = int(delta.total_seconds() // 3600)
-        mins = int((delta.total_seconds() % 3600) // 60)
-        medal = medals.get(cat, "🏅")
-        dur = e.get("duration", "")
-        dur_line = f"\n⏱ Длительность: {dur}" if dur else ""
-        local = dt.astimezone(tz)
-        lines.append(
-            f"\n{medal} {cat} {medal}\n"
-            f"{e['title']} — {e['track']}\n"
-            f"⏰ {local.strftime('%H:%M')} ({label}) (через {hours}ч {mins}мин){dur_line}"
-        )
-    await msg.answer("\n".join(lines))
-
-
-@dp.message(Command("schedule"))
-async def cmd_schedule(msg: types.Message):
-    now = datetime.now(timezone.utc)
-    if not any(parse_dt(e["start_utc"]) > now for e in load_events()):
-        await update_rc_cache()
-    tz_name = await get_tz(msg.chat.id)
-    off = await get_offset_minutes(msg.chat.id)
-    tz = get_tzinfo(tz_name, off)
-    label = tz_label(tz_name, off)
-    # группируем по категории -> гонка (title+track) -> список времён старта
-    by_cat = {}
-    for e in load_events():
-        dt = parse_dt(e["start_utc"])
-        if not (0 <= (dt - now).total_seconds() <= 7 * 86400):
-            continue
-        cat = (e.get("class") or "").strip() or "Other"
-        key = (e.get("title"), e.get("track"))
-        by_cat.setdefault(cat, {}).setdefault(key, []).append(dt)
-    if not by_cat:
-        await msg.answer("На ближайшие 7 дней событий нет. Попробуйте /refresh")
-        return
-    order = ["Beginner", "Intermediate", "Advanced"]
-    medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
-    lines = ["📅 Расписание на неделю Daily:"]
-    for cat in order + [c for c in by_cat if c not in order]:
-        if cat not in by_cat:
-            continue
-        medal = medals.get(cat, "🏅")
-        lines.append(f"\n{medal} {cat} {medal}")
-        races = list(by_cat[cat].items())
-        for idx, ((title, track), times) in enumerate(races):
-            times_sorted = sorted(set(t.astimezone(tz).strftime("%H:%M") for t in times))
-            dur = ""
-            for e in load_events():
-                if e.get("title") == title and e.get("track") == track:
-                    dur = e.get("duration", "")
-                    break
-            dur_str = f" ({dur})" if dur else ""
-            lines.append(f"• {title} — {track}{dur_str}")
-            lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
-            if idx < len(races) - 1:
-                lines.append("")
-        lines.append("")
-    await msg.answer("\n".join(lines))
-
-
-@dp.message(Command("subscribe"))
-async def cmd_subscribe(msg: types.Message):
-    await subscribe(msg.chat.id)
-    await msg.answer(
-        "✅ Вы подписаны на еженедельную рассылку!\n"
-        "Каждый вторник в 10:30 UTC буду присылать\n"
-        "расписание гонок на ближайшую неделю.\n\n"
-        "Отписаться: /unsubscribe"
     )
 
 
@@ -504,8 +342,10 @@ async def cmd_tz(msg: types.Message):
             await msg.answer(f"✅ Часовой пояс установлен: UTC{sign}{off//60}:{abs(off)%60:02d}")
         return
     tz = await get_tz(msg.chat.id)
+    off = await get_offset_minutes(msg.chat.id)
+    label = tz_label(tz, off)
     await msg.answer(
-        f"Ваш часовой пояс: {tz}\n\n"
+        f"Ваш часовой пояс: {label}\n\n"
         "Выберите из списка или введите вручную:",
         reply_markup=tz_keyboard()
     )
@@ -539,6 +379,102 @@ async def cb_tz_manual(callback: types.CallbackQuery):
         "Поддерживаются IANA-зоны и смещения (+3, -5, +05:30)."
     )
     await callback.answer()
+
+
+@dp.message(Command("next"))
+async def cmd_next(msg: types.Message):
+    now = datetime.now(timezone.utc)
+    if not any(parse_dt(e["start_utc"]) > now for e in load_events()):
+        await update_rc_cache()
+    tz_name, off, tz = await get_tzinfo_for(msg.chat.id) if False else (await get_tz(msg.chat.id), await get_offset_minutes(msg.chat.id), None)
+    tz = get_tzinfo(tz_name, off)
+    label = tz_label(tz_name, off)
+    by_cat = {}
+    for e in load_events():
+        dt = parse_dt(e["start_utc"])
+        if dt <= now:
+            continue
+        cat = (e.get("class") or "").strip() or "Other"
+        if cat not in by_cat or dt < by_cat[cat][0]:
+            by_cat[cat] = (dt, e)
+    if not by_cat:
+        await msg.answer("Событий не найдено. Попробуйте /refresh")
+        return
+    order = ["Beginner", "Intermediate", "Advanced"]
+    medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
+    lines = ["🏁 Ближайшие гонки по категориям:"]
+    for cat in order + [c for c in by_cat if c not in order]:
+        if cat not in by_cat:
+            continue
+        dt, e = by_cat[cat]
+        delta = dt - now
+        hours = int(delta.total_seconds() // 3600)
+        mins = int((delta.total_seconds() % 3600) // 60)
+        medal = medals.get(cat, "🏅")
+        dur = e.get("duration", "")
+        dur_line = f"\n⏱ Длительность: {dur}" if dur else ""
+        local = dt.astimezone(tz)
+        lines.append(
+            f"\n{medal} {cat} {medal}\n"
+            f"{e['title']} — {e['track']}\n"
+            f"⏰ {local.strftime('%H:%M')} ({label}) (через {hours}ч {mins}мин){dur_line}"
+        )
+    await msg.answer("\n".join(lines))
+
+
+@dp.message(Command("schedule"))
+async def cmd_schedule(msg: types.Message):
+    now = datetime.now(timezone.utc)
+    if not any(parse_dt(e["start_utc"]) > now for e in load_events()):
+        await update_rc_cache()
+    tz_name = await get_tz(msg.chat.id)
+    off = await get_offset_minutes(msg.chat.id)
+    tz = get_tzinfo(tz_name, off)
+    label = tz_label(tz_name, off)
+    by_cat = {}
+    for e in load_events():
+        dt = parse_dt(e["start_utc"])
+        if not (0 <= (dt - now).total_seconds() <= 7 * 86400):
+            continue
+        cat = (e.get("class") or "").strip() or "Other"
+        key = (e.get("title"), e.get("track"))
+        by_cat.setdefault(cat, {}).setdefault(key, []).append(dt)
+    if not by_cat:
+        await msg.answer("На ближайшие 7 дней событий нет. Попробуйте /refresh")
+        return
+    order = ["Beginner", "Intermediate", "Advanced"]
+    medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
+    lines = ["📅 Расписание на неделю Daily:"]
+    for cat in order + [c for c in by_cat if c not in order]:
+        if cat not in by_cat:
+            continue
+        medal = medals.get(cat, "🏅")
+        lines.append(f"\n{medal} {cat} {medal}")
+        races = list(by_cat[cat].items())
+        for idx, ((title, track), times) in enumerate(races):
+            times_sorted = sorted(set(t.astimezone(tz).strftime("%H:%M") for t in times))
+            dur = ""
+            for e in load_events():
+                if e.get("title") == title and e.get("track") == track:
+                    dur = e.get("duration", "")
+                    break
+            dur_str = f" ({dur})" if dur else ""
+            lines.append(f"• {title} — {track}{dur_str}")
+            lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
+            if idx < len(races) - 1:
+                lines.append("")
+        lines.append("")
+
+
+@dp.message(Command("subscribe"))
+async def cmd_subscribe(msg: types.Message):
+    await subscribe(msg.chat.id)
+    await msg.answer(
+        "✅ Вы подписаны на еженедельную рассылку!\n"
+        "Каждый вторник в 10:30 UTC буду присылать\n"
+        "расписание гонок на ближайшую неделю.\n\n"
+        "Отписаться: /unsubscribe"
+    )
 
 
 @dp.message(Command("unsubscribe"))
@@ -613,7 +549,6 @@ async def health(request):
 async def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     await init_db()
-    # initial fetch in background (don't block startup)
     asyncio.create_task(update_rc_cache())
 
     app = web.Application()
@@ -629,7 +564,6 @@ async def main():
     if WEBHOOK_URL:
         await bot.set_webhook(WEBHOOK_URL)
 
-    # RaceControl weekly schedule updates every Tuesday 10:00 UTC
     scheduler.add_job(update_rc_cache, "cron", day_of_week="tue", hour=10, minute=10)
     scheduler.add_job(weekly_digest, "cron", day_of_week="tue", hour=10, minute=30)
     scheduler.add_job(update_rc_cache, "interval", hours=2)
