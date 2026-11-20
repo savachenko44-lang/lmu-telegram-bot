@@ -686,6 +686,44 @@ async def cmd_stats(msg: types.Message):
     )
 
 
+@dp.message(Command("admin"))
+async def cmd_admin(msg: types.Message):
+    if not ADMIN_CHAT_ID or str(msg.chat.id) != str(ADMIN_CHAT_ID):
+        return
+    lang = await get_lang(msg.chat.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить расписание" if lang == "ru" else "🔄 Refresh schedule", callback_data="admin:refresh")],
+        [InlineKeyboardButton(text="📊 Статистика" if lang == "ru" else "📊 Stats", callback_data="admin:stats")],
+    ])
+    await msg.answer("Админ-панель:" if lang == "ru" else "Admin panel:", reply_markup=kb)
+
+
+@dp.callback_query(F.data == "admin:refresh")
+async def cb_admin_refresh(callback: types.CallbackQuery):
+    if not ADMIN_CHAT_ID or str(callback.from_user.id) != str(ADMIN_CHAT_ID):
+        return
+    lang = await get_lang(callback.from_user.id)
+    await callback.message.edit_text("🔄 " + ("Обновляю..." if lang == "ru" else "Updating..."))
+    n = await update_rc_cache(force=True)
+    text = (tr("refresh_ok", lang, n=n) if n else tr("refresh_fail", lang))
+    await callback.message.edit_text(text)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "admin:stats")
+async def cb_admin_stats(callback: types.CallbackQuery):
+    if not ADMIN_CHAT_ID or str(callback.from_user.id) != str(ADMIN_CHAT_ID):
+        return
+    lang = await get_lang(callback.from_user.id)
+    async with DB_POOL.acquire() as conn:
+        users = await conn.fetchval("SELECT COUNT(*) FROM users")
+        subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers")
+    text = (f"📊 Статистика:\nПользователей: {users}\nПодписчиков: {subs}" if lang == "ru"
+            else f"📊 Stats:\nUsers: {users}\nSubscribers: {subs}")
+    await callback.message.edit_text(text)
+    await callback.answer()
+
+
 @dp.message(Command("help"))
 async def cmd_help(msg: types.Message):
     lang = await get_lang(msg.chat.id)
@@ -750,9 +788,8 @@ async def main():
         await bot.delete_my_commands()
     except Exception:
         pass
+    # только базовые команды для всех (refresh/stats только через /admin)
     await bot.set_my_commands(get_commands("ru", False))
-    if ADMIN_CHAT_ID:
-        await bot.set_my_commands(get_commands("ru", True), scope=BotCommandScopeChat(chat_id=int(ADMIN_CHAT_ID)))
     asyncio.create_task(update_rc_cache())
 
     app = web.Application()
