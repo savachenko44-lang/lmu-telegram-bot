@@ -200,12 +200,18 @@ async def init_db():
                 notify_1h INTEGER DEFAULT 1,
                 notify_start INTEGER DEFAULT 1,
                 daily INTEGER DEFAULT 1,
-                tz TEXT DEFAULT 'UTC'
+                tz TEXT DEFAULT 'UTC',
+                offset_minutes INTEGER DEFAULT 0
             )
         """)
         # migration: add tz column if missing
         try:
             await db.execute("ALTER TABLE subscribers ADD COLUMN tz TEXT DEFAULT 'UTC'")
+        except Exception:
+            pass
+        # migration: add offset_minutes column if missing
+        try:
+            await db.execute("ALTER TABLE subscribers ADD COLUMN offset_minutes INTEGER DEFAULT 0")
         except Exception:
             pass
         await db.execute("""
@@ -246,25 +252,70 @@ async def get_tz(chat_id):
     return "UTC"
 
 
-async def set_tz(chat_id, tz):
-    # ensure subscribed
+async def get_offset_minutes(chat_id):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT offset_minutes FROM subscribers WHERE chat_id=?", (chat_id,))
+        row = await cur.fetchone()
+    return row[0] if row else 0
+
+
+async def set_tz(chat_id, tz=None, offset_minutes=0):
     await subscribe(chat_id)
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE subscribers SET tz=? WHERE chat_id=?", (tz, chat_id))
+        await db.execute("UPDATE subscribers SET tz=?, offset_minutes=? WHERE chat_id=?",
+                        (tz or "UTC", offset_minutes, chat_id))
         await db.commit()
 
 
+def parse_offset(s):
+    """Parse '+3', '-5', '+05:30', 'UTC+3' etc. Return minutes or None."""
+    s = s.strip().replace("UTC", "").replace("utc", "").strip()
+    m = re.match(r"^([+-])(\d{1,2})(?::?(\d{2}))?$", s)
+    if not m:
+        return None
+    sign = 1 if m.group(1) == "+" else -1
+    hours = int(m.group(2))
+    mins = int(m.group(3)) if m.group(3) else 0
+    return sign * (hours * 60 + mins)
+
+
 def valid_tz(tz):
+    if tz is None:
+        return False
     try:
         ZoneInfo(tz)
         return True
     except Exception:
-        return False
+        return parse_offset(tz) is not None
+
+
+def get_tzinfo(tz_name, offset_minutes=0):
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return timezone(timedelta(minutes=offset_minutes))
+
+
+def tz_label(tz_name, offset_minutes=0):
+    if tz_name and tz_name != "UTC":
+        return tz_name
+    sign = "+" if offset_minutes >= 0 else ""
+    h = offset_minutes // 60
+    m = abs(offset_minutes) % 60
+    if m:
+        return f"UTC{sign}{h}:{m:02d}"
+    return f"UTC{sign}{h}"
+
+
+async def get_tzinfo_for(chat_id):
+    tz = await get_tz(chat_id)
+    off = await get_offset_minutes(chat_id)
+    return get_tzinfo(tz, off)
 
 
 async def all_subscribers():
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT chat_id, notify_24h, notify_1h, notify_start, daily, tz FROM subscribers")
+        cur = await db.execute("SELECT chat_id, notify_24h, notify_1h, notify_start, daily, tz, offset_minutes FROM subscribers")
         rows = await cur.fetchall()
     return rows
 
@@ -301,7 +352,9 @@ async def cmd_start(msg: types.Message):
 async def cmd_next(msg: types.Message):
     now = datetime.now(timezone.utc)
     tz_name = await get_tz(msg.chat.id)
-    tz = ZoneInfo(tz_name)
+    off = await get_offset_minutes(msg.chat.id)
+    tz = get_tzinfo(tz_name, off)
+    label = tz_label(tz_name, off)
     # ближайшее событие по каждой категории
     by_cat = {}
     for e in load_events():
@@ -332,7 +385,7 @@ async def cmd_next(msg: types.Message):
         lines.append(
             f"\n{medal} {cat} {medal}\n"
             f"{e['title']} — {e['track']}\n"
-            f"⏰ {local.strftime('%H:%M')} ({tz_name}) (через {hours}ч {mins}мин){dur_line}"
+            f"⏰ {local.strftime('%H:%M')} ({label}) (через {hours}ч {mins}мин){dur_line}"
         )
     await msg.answer("\n".join(lines))
 
@@ -341,7 +394,9 @@ async def cmd_next(msg: types.Message):
 async def cmd_schedule(msg: types.Message):
     now = datetime.now(timezone.utc)
     tz_name = await get_tz(msg.chat.id)
-    tz = ZoneInfo(tz_name)
+    off = await get_offset_minutes(msg.chat.id)
+    tz = get_tzinfo(tz_name, off)
+    label = tz_label(tz_name, off)
     # группируем по категории -> гонка (title+track) -> список времён старта
     by_cat = {}
     for e in load_events():
@@ -372,7 +427,7 @@ async def cmd_schedule(msg: types.Message):
                     break
             dur_str = f" ({dur})" if dur else ""
             lines.append(f"• {title} — {track}{dur_str}")
-            lines.append(f"⏰ {', '.join(times_sorted)} ({tz_name})")
+            lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
             if idx < len(races) - 1:
                 lines.append("")
         lines.append("")
@@ -392,7 +447,7 @@ async def cmd_subscribe(msg: types.Message):
 
 TZ_OPTIONS = [
     ("UTC", "UTC"),
-    ("Europe/Kiev", "Киев"),
+    ("Europe/Kyiv", "Киев"),
     ("Europe/Moscow", "Москва"),
     ("Europe/London", "Лондон"),
     ("Europe/Berlin", "Берлин"),
@@ -417,14 +472,22 @@ async def cmd_tz(msg: types.Message):
     if len(args) >= 2:
         tz = args[1].strip()
         if not valid_tz(tz):
-            await msg.answer("❌ Неверный часовой пояс. Пример: Europe/Kiev")
+            await msg.answer("❌ Неверный часовой пояс. Пример: Europe/Kyiv или +3")
             return
-        await set_tz(msg.chat.id, tz)
-        await msg.answer(f"✅ Часовой пояс установлен: {tz}")
+        off = parse_offset(tz)
+        if off is None:
+            await set_tz(msg.chat.id, tz, 0)
+            await msg.answer(f"✅ Часовой пояс установлен: {tz}")
+        else:
+            await set_tz(msg.chat.id, "UTC", off)
+            sign = "+" if off >= 0 else ""
+            await msg.answer(f"✅ Часовой пояс установлен: UTC{sign}{off//60}:{abs(off)%60:02d}")
         return
     tz = await get_tz(msg.chat.id)
     await msg.answer(
-        f"Ваш часовой пояс: {tz}\n\nВыберите из списка:",
+        f"Ваш часовой пояс: {tz}\n\n"
+        "Выберите из списка или введите вручную:\n"
+        "/tz +3  или  /tz Europe/Kyiv",
         reply_markup=tz_keyboard()
     )
 
@@ -435,8 +498,14 @@ async def cb_tz(callback: types.CallbackQuery):
     if not valid_tz(tz):
         await callback.answer("Неверный пояс", show_alert=True)
         return
-    await set_tz(callback.from_user.id, tz)
-    await callback.message.edit_text(f"✅ Часовой пояс установлен: {tz}")
+    off = parse_offset(tz)
+    if off is None:
+        await set_tz(callback.from_user.id, tz, 0)
+        await callback.message.edit_text(f"✅ Часовой пояс установлен: {tz}")
+    else:
+        await set_tz(callback.from_user.id, "UTC", off)
+        sign = "+" if off >= 0 else ""
+        await callback.message.edit_text(f"✅ Часовой пояс установлен: UTC{sign}{off//60}:{abs(off)%60:02d}")
     await callback.answer()
 
 
@@ -488,17 +557,18 @@ async def weekly_digest():
     subs = await all_subscribers()
     if not subs:
         return
-    for chat_id, n24, n1, ns, daily, tz_name in subs:
+    for chat_id, n24, n1, ns, daily, tz_name, off in subs:
         if not daily:
             continue
-        tz = ZoneInfo(tz_name or "UTC")
+        tz = get_tzinfo(tz_name or "UTC", off or 0)
+        label = tz_label(tz_name or "UTC", off or 0)
         if not events:
             text = "📅 На ближайшую неделю событий нет."
         else:
             lines = ["📅 Расписание LMU на неделю Daily:"]
             for dt, e in events[:40]:
                 local = dt.astimezone(tz)
-                lines.append(f"• {local.strftime('%d.%m %H:%M')} ({tz_name}) — {e['title']} ({e['track']}) [{e['class']}]")
+                lines.append(f"• {local.strftime('%d.%m %H:%M')} ({label}) — {e['title']} ({e['track']}) [{e['class']}]")
             text = "\n".join(lines)
         await safe_send(chat_id, text)
 
