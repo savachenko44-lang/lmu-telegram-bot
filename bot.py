@@ -192,7 +192,11 @@ async def mark_sent(event_id, chat_id, kind):
 # ---------- RaceControl parser ----------
 async def fetch_racecontrol_events():
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        r = await client.get(RC_URL, headers={"User-Agent": "Mozilla/5.0"})
+        r = await client.get(RC_URL, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
         r.raise_for_status()
         html = r.text
     soup = BeautifulSoup(html, "html.parser")
@@ -260,13 +264,22 @@ async def fetch_racecontrol_events():
     return events
 
 
-async def update_rc_cache():
+_last_rc_update = None
+
+
+async def update_rc_cache(force=False):
+    global _last_rc_update
+    now = datetime.now(timezone.utc)
+    # не чаще чем раз в час, чтобы не блокировали
+    if not force and _last_rc_update and (now - _last_rc_update).total_seconds() < 3600:
+        return 0
     try:
         events = await fetch_racecontrol_events()
         if events:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
             with open(RC_CACHE_PATH, "w", encoding="utf-8") as f:
                 json.dump(events, f, ensure_ascii=False, indent=2)
+            _last_rc_update = now
             return len(events)
     except Exception as e:
         print("RC fetch error:", e)
@@ -590,7 +603,7 @@ async def main():
 
     scheduler.add_job(update_rc_cache, "cron", day_of_week="tue", hour=10, minute=10)
     scheduler.add_job(weekly_digest, "cron", day_of_week="tue", hour=10, minute=30)
-    scheduler.add_job(update_rc_cache, "interval", hours=2)
+    scheduler.add_job(update_rc_cache, "interval", hours=6)
     scheduler.start()
 
     await asyncio.Event().wait()
