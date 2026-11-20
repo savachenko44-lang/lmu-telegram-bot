@@ -118,10 +118,15 @@ async def fetch_racecontrol_events():
         tier = tier_el.get_text(strip=True) if tier_el else ""
         # track: find race-header containing "Track"
         track = ""
+        duration = ""
         for header in card.find_all("div", class_="race-header"):
             spans = header.find_all("span")
-            if len(spans) >= 2 and "track" in spans[0].get_text(strip=True).lower():
-                track = spans[-1].get_text(strip=True)
+            if len(spans) >= 2:
+                label = spans[0].get_text(strip=True).lower()
+                if "track" in label:
+                    track = spans[-1].get_text(strip=True)
+                if "duration" in label:
+                    duration = spans[-1].get_text(strip=True)
         # times
         times = []
         marquee = card.find("div", class_="marquee-content")
@@ -162,6 +167,7 @@ async def fetch_racecontrol_events():
                 "class": tier.capitalize() if tier else "",
                 "start_utc": dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "sessions": [{"name": "Race", "start_utc": dt.strftime("%Y-%m-%dT%H:%M:%SZ")}],
+                "duration": duration,
                 "image": image,
                 "url": RC_URL
             })
@@ -283,10 +289,12 @@ async def cmd_next(msg: types.Message):
         hours = int(delta.total_seconds() // 3600)
         mins = int((delta.total_seconds() % 3600) // 60)
         medal = medals.get(cat, "🏅")
+        dur = e.get("duration", "")
+        dur_line = f"\n⏱ Длительность: {dur}" if dur else ""
         lines.append(
             f"\n{medal} {cat}\n"
             f"{e['title']} — {e['track']}\n"
-            f"⏰ {dt.strftime('%H:%M')} UTC (через {hours}ч {mins}мин)"
+            f"⏰ {dt.strftime('%H:%M')} UTC (через {hours}ч {mins}мин){dur_line}"
         )
     await msg.answer("\n".join(lines))
 
@@ -314,7 +322,14 @@ async def cmd_schedule(msg: types.Message):
         lines.append(f"\n[{cat}]")
         for (title, track), times in by_cat[cat].items():
             times_sorted = sorted(set(t.strftime("%H:%M") for t in times))
-            lines.append(f"• {title} — {track}: {', '.join(times_sorted)}")
+            # duration from first matching event
+            dur = ""
+            for e in load_events():
+                if e.get("title") == title and e.get("track") == track:
+                    dur = e.get("duration", "")
+                    break
+            dur_str = f" ({dur})" if dur else ""
+            lines.append(f"• {title} — {track}{dur_str}: {', '.join(times_sorted)}")
     await msg.answer("\n".join(lines))
 
 
