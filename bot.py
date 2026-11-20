@@ -315,21 +315,26 @@ async def cmd_schedule(msg: types.Message):
         await msg.answer("На ближайшие 7 дней событий нет. Попробуйте /refresh")
         return
     order = ["Beginner", "Intermediate", "Advanced"]
+    medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
     lines = ["📅 Расписание на неделю (RaceControl):"]
     for cat in order + [c for c in by_cat if c not in order]:
         if cat not in by_cat:
             continue
-        lines.append(f"\n[{cat}]")
-        for (title, track), times in by_cat[cat].items():
+        medal = medals.get(cat, "🏅")
+        lines.append(f"\n{medal} {cat}")
+        races = list(by_cat[cat].items())
+        for idx, ((title, track), times) in enumerate(races):
             times_sorted = sorted(set(t.strftime("%H:%M") for t in times))
-            # duration from first matching event
             dur = ""
             for e in load_events():
                 if e.get("title") == title and e.get("track") == track:
                     dur = e.get("duration", "")
                     break
             dur_str = f" ({dur})" if dur else ""
-            lines.append(f"• {title} — {track}{dur_str}: {', '.join(times_sorted)}")
+            lines.append(f"• {title} — {track}{dur_str}")
+            lines.append(f"⏰ {', '.join(times_sorted)}")
+            if idx < len(races) - 1:
+                lines.append("")
     await msg.answer("\n".join(lines))
 
 
