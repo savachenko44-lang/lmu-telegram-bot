@@ -380,8 +380,7 @@ async def cmd_start(msg: types.Message):
         f"/unsubscribe — {tr('unsubscribed', lang)}\n"
         f"/tz — часовой пояс / timezone\n"
         f"/lang — язык / language\n"
-        f"/refresh — обновить расписание / refresh\n"
-        f"/help — справка / help"
+        f"/admin — админ-панель (только для админа)"
     )
 
 
@@ -625,7 +624,6 @@ def get_commands(lang, is_admin=False):
             BotCommand(command="unsubscribe", description="Отписаться"),
             BotCommand(command="tz", description="Часовой пояс"),
             BotCommand(command="lang", description="Язык"),
-            BotCommand(command="help", description="Справка"),
         ]
     if is_admin:
         if lang == "en":
