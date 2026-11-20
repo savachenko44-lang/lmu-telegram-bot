@@ -158,6 +158,7 @@ async def init_db():
             )
         """)
         await conn.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS lang TEXT DEFAULT 'ru'")
+        await conn.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS feedback_mode INTEGER DEFAULT 0")
 
 
 async def subscribe(chat_id):
@@ -217,6 +218,18 @@ async def set_lang(chat_id, lang):
     await subscribe(chat_id)
     async with DB_POOL.acquire() as conn:
         await conn.execute("UPDATE subscribers SET lang=$1 WHERE chat_id=$2", lang, chat_id)
+
+
+async def get_feedback_mode(chat_id):
+    async with DB_POOL.acquire() as conn:
+        row = await conn.fetchrow("SELECT feedback_mode FROM subscribers WHERE chat_id=$1", chat_id)
+    return bool(row and row["feedback_mode"])
+
+
+async def set_feedback_mode(chat_id, mode):
+    await subscribe(chat_id)
+    async with DB_POOL.acquire() as conn:
+        await conn.execute("UPDATE subscribers SET feedback_mode=$1 WHERE chat_id=$2", 1 if mode else 0, chat_id)
 
 
 async def set_tz(chat_id, tz=None, offset_minutes=0):
@@ -401,6 +414,7 @@ async def cmd_start(msg: types.Message):
         [InlineKeyboardButton(text=("✅ Подписаться" if lang == "ru" else "✅ Підписатися" if lang == "uk" else "✅ Subscribe") if not await is_subscribed(msg.chat.id) else ("❌ Отписаться" if lang == "ru" else "❌ Відписатися" if lang == "uk" else "❌ Unsubscribe"), callback_data="menu:sub" if not await is_subscribed(msg.chat.id) else "menu:unsub")],
         [InlineKeyboardButton(text="🕐 " + ("Часовой пояс" if lang == "ru" else "Часовий пояс" if lang == "uk" else "Timezone"), callback_data="settings:tz")],
         [InlineKeyboardButton(text="🌐 " + ("Язык" if lang == "ru" else "Мова" if lang == "uk" else "Language"), callback_data="settings:lang")],
+        [InlineKeyboardButton(text="💡 " + ("Пожелания" if lang == "ru" else "Побажання" if lang == "uk" else "Feedback"), callback_data="menu:feedback")],
     ])
     if ADMIN_CHAT_ID and str(msg.chat.id) == str(ADMIN_CHAT_ID):
         kb.inline_keyboard.append([InlineKeyboardButton(text="🔧 Admin", callback_data="menu:admin")])
@@ -441,6 +455,7 @@ async def cb_menu_settings(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🕐 " + ("Часовой пояс" if lang == "ru" else "Часовий пояс" if lang == "uk" else "Timezone"), callback_data="settings:tz")],
         [InlineKeyboardButton(text="🌐 " + ("Язык" if lang == "ru" else "Мова" if lang == "uk" else "Language"), callback_data="settings:lang")],
+        [InlineKeyboardButton(text="💡 " + ("Пожелания" if lang == "ru" else "Побажання" if lang == "uk" else "Feedback"), callback_data="menu:feedback")],
     ])
     await callback.message.answer("⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), reply_markup=kb)
 
@@ -478,6 +493,18 @@ async def cb_settings_lang(callback: types.CallbackQuery):
 async def cb_menu_admin(callback: types.CallbackQuery):
     await callback.answer()
     await cmd_admin(callback.message)
+
+
+@dp.callback_query(F.data == "menu:feedback")
+async def cb_menu_feedback(callback: types.CallbackQuery):
+    await callback.answer()
+    lang = await get_lang(callback.from_user.id)
+    await set_feedback_mode(callback.from_user.id, True)
+    await callback.message.answer(
+        "💡 " + ("Напишите ваше пожелание следующим сообщением." if lang == "ru"
+                 else "💡 Напишіть ваше побажання наступним повідомленням." if lang == "uk"
+                 else "💡 Please send your feedback as the next message.")
+    )
 
 
 TZ_OPTIONS = [
@@ -839,6 +866,21 @@ async def cb_admin_stats(callback: types.CallbackQuery):
             else f"📊 Stats:\nUsers: {users}\nSubscribers: {subs}")
     await callback.message.edit_text(text)
     await callback.answer()
+
+
+@dp.message(F.text & ~F.text.startswith("/"))
+async def handle_text(msg: types.Message):
+    if await get_feedback_mode(msg.chat.id):
+        await set_feedback_mode(msg.chat.id, False)
+        lang = await get_lang(msg.chat.id)
+        if ADMIN_CHAT_ID:
+            await bot.send_message(
+                int(ADMIN_CHAT_ID),
+                f"💡 Feedback from {msg.chat.id} ({msg.from_user.full_name}):\n{msg.text}"
+            )
+        await msg.answer("✅ " + ("Спасибо! Пожелание отправлено." if lang == "ru"
+                                 else "✅ Дякуємо! Побажання надіслано." if lang == "uk"
+                                 else "✅ Thanks! Feedback sent."))
 
 
 @dp.message(Command("help"))
