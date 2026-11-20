@@ -457,7 +457,11 @@ async def cmd_schedule(msg: types.Message):
         lines.append(f"\n{medal} {cat} {medal}")
         races = list(by_cat[cat].items())
         for idx, ((title, track), times) in enumerate(races):
-            times_sorted = sorted(set(t.astimezone(tz).strftime("%H:%M") for t in times))
+            try:
+                times_sorted = sorted(set(t.astimezone(tz).strftime("%H:%M") for t in times))
+            except Exception as ex:
+                await msg.answer(f"❌ Ошибка времени: {ex}")
+                return
             dur = ""
             for e in load_events():
                 if e.get("title") == title and e.get("track") == track:
@@ -469,9 +473,7 @@ async def cmd_schedule(msg: types.Message):
             if idx < len(races) - 1:
                 lines.append("")
         lines.append("")
-
-
-@dp.message(Command("subscribe"))
+    await msg.answer("\n".join(lines))
 async def cmd_subscribe(msg: types.Message):
     await subscribe(msg.chat.id)
     await msg.answer(
