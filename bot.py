@@ -476,13 +476,16 @@ async def cmd_schedule(msg: types.Message):
         lines.append("")
     await msg.answer("\n".join(lines))
 async def cmd_subscribe(msg: types.Message):
-    await subscribe(msg.chat.id)
-    await msg.answer(
-        "✅ Вы подписаны на еженедельную рассылку!\n"
-        "Каждый вторник в 10:30 UTC буду присылать\n"
-        "расписание гонок на ближайшую неделю.\n\n"
-        "Отписаться: /unsubscribe"
-    )
+    try:
+        await subscribe(msg.chat.id)
+        await msg.answer(
+            "✅ Вы подписаны на еженедельную рассылку!\n"
+            "Каждый вторник в 10:30 UTC буду присылать\n"
+            "расписание гонок на ближайшую неделю.\n\n"
+            "Отписаться: /unsubscribe"
+        )
+    except Exception as ex:
+        await msg.answer(f"❌ Ошибка подписки: {ex}")
 
 
 @dp.message(Command("unsubscribe"))
