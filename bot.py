@@ -604,11 +604,53 @@ async def cmd_lang(msg: types.Message):
     await msg.answer(f"Текущий язык: {lang}\nCurrent language: {lang}", reply_markup=kb)
 
 
+def get_commands(lang, is_admin=False):
+    if lang == "en":
+        cmds = [
+            BotCommand(command="start", description="Start bot"),
+            BotCommand(command="next", description="Nearest races by category"),
+            BotCommand(command="schedule", description="Weekly schedule"),
+            BotCommand(command="subscribe", description="Subscribe to weekly digest"),
+            BotCommand(command="unsubscribe", description="Unsubscribe"),
+            BotCommand(command="tz", description="Timezone"),
+            BotCommand(command="lang", description="Language"),
+            BotCommand(command="help", description="Help"),
+        ]
+    else:
+        cmds = [
+            BotCommand(command="start", description="Запуск бота"),
+            BotCommand(command="next", description="Ближайшие гонки по категориям"),
+            BotCommand(command="schedule", description="Расписание на неделю"),
+            BotCommand(command="subscribe", description="Подписаться на рассылку"),
+            BotCommand(command="unsubscribe", description="Отписаться"),
+            BotCommand(command="tz", description="Часовой пояс"),
+            BotCommand(command="lang", description="Язык"),
+            BotCommand(command="help", description="Справка"),
+        ]
+    if is_admin:
+        if lang == "en":
+            cmds += [
+                BotCommand(command="refresh", description="Refresh schedule"),
+                BotCommand(command="stats", description="Statistics"),
+            ]
+        else:
+            cmds += [
+                BotCommand(command="refresh", description="Обновить расписание"),
+                BotCommand(command="stats", description="Статистика"),
+            ]
+    return cmds
+
+
 @dp.callback_query(F.data.startswith("lang:"))
 async def cb_lang(callback: types.CallbackQuery):
     lang = callback.data.split(":", 1)[1]
     await set_lang(callback.from_user.id, lang)
-    await callback.message.edit_text(f"✅ Language set: {lang}")
+    is_admin = bool(ADMIN_CHAT_ID) and str(callback.from_user.id) == str(ADMIN_CHAT_ID)
+    try:
+        await bot.set_my_commands(get_commands(lang, is_admin), scope=BotCommandScopeChat(chat_id=callback.from_user.id))
+    except Exception:
+        pass
+    await callback.message.edit_text(f"✅ Language set: {lang}" if lang == "en" else f"✅ Язык установлен: {lang}")
     await callback.answer()
 
 
@@ -708,23 +750,9 @@ async def main():
         await bot.delete_my_commands()
     except Exception:
         pass
-    base_commands = [
-        BotCommand(command="start", description="Запуск бота"),
-        BotCommand(command="next", description="Ближайшие гонки по категориям"),
-        BotCommand(command="schedule", description="Расписание на неделю"),
-        BotCommand(command="subscribe", description="Подписаться на рассылку"),
-        BotCommand(command="unsubscribe", description="Отписаться"),
-        BotCommand(command="tz", description="Часовой пояс"),
-        BotCommand(command="lang", description="Язык"),
-        BotCommand(command="help", description="Справка"),
-    ]
-    await bot.set_my_commands(base_commands)
+    await bot.set_my_commands(get_commands("ru", False))
     if ADMIN_CHAT_ID:
-        admin_commands = base_commands + [
-            BotCommand(command="refresh", description="Обновить расписание"),
-            BotCommand(command="stats", description="Статистика"),
-        ]
-        await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=int(ADMIN_CHAT_ID)))
+        await bot.set_my_commands(get_commands("ru", True), scope=BotCommandScopeChat(chat_id=int(ADMIN_CHAT_ID)))
     asyncio.create_task(update_rc_cache())
 
     app = web.Application()
