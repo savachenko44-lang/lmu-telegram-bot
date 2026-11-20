@@ -703,6 +703,11 @@ async def health(request):
 async def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     await init_db()
+    # очистить старые команды (на случай кэша)
+    try:
+        await bot.delete_my_commands()
+    except Exception:
+        pass
     base_commands = [
         BotCommand(command="start", description="Запуск бота"),
         BotCommand(command="next", description="Ближайшие гонки по категориям"),
