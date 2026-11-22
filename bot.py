@@ -29,8 +29,20 @@ RC_URL = "https://racecontrol.gg"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
+
+@dp.update.outer_middleware()
+async def dedup_middleware(handler, event, data):
+    global _last_update_id
+    update_id = getattr(event, "update_id", None)
+    if update_id is not None:
+        if update_id <= _last_update_id:
+            return None
+        _last_update_id = update_id
+    return await handler(event, data)
 scheduler = AsyncIOScheduler(timezone="UTC")
 DB_POOL = None
+_last_update_id = 0
 
 MONTHS = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
           "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
