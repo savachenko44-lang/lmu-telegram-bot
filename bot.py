@@ -750,7 +750,7 @@ def get_commands(lang, is_admin=False):
         cmds = [
             BotCommand(command="start", description="Запуск бота"),
             BotCommand(command="next", description="Найближчі гонки за категоріями"),
-            BotCommand(command="schedule", description="Розклад на тиждень"),
+            BotCommand(command="schedule", description="Розклад Daily"),
             BotCommand(command="subscribe", description="Підписатися на розсилку"),
             BotCommand(command="unsubscribe", description="Відписатися"),
             BotCommand(command="tz", description="Часовий пояс"),
@@ -761,7 +761,7 @@ def get_commands(lang, is_admin=False):
         cmds = [
             BotCommand(command="start", description="Start bot"),
             BotCommand(command="next", description="Nearest races by category"),
-            BotCommand(command="schedule", description="Weekly schedule"),
+            BotCommand(command="schedule", description="Schedule Daily"),
             BotCommand(command="subscribe", description="Subscribe to weekly digest"),
             BotCommand(command="unsubscribe", description="Unsubscribe"),
             BotCommand(command="tz", description="Timezone"),
@@ -772,7 +772,7 @@ def get_commands(lang, is_admin=False):
         cmds = [
             BotCommand(command="start", description="Запуск бота"),
             BotCommand(command="next", description="Ближайшие гонки по категориям"),
-            BotCommand(command="schedule", description="Расписание на неделю"),
+            BotCommand(command="schedule", description="Расписание Daily"),
             BotCommand(command="subscribe", description="Подписаться на рассылку"),
             BotCommand(command="unsubscribe", description="Отписаться"),
             BotCommand(command="tz", description="Часовой пояс"),
