@@ -39,7 +39,7 @@ T = {
     "ru": {
         "start": "Привет! Я бот расписания Le Mans Ultimate (данные с RaceControl.gg).\n\nКоманды:\n",
         "next": "🏁 Ближайшие гонки по категориям:",
-        "schedule": "📅 Расписание на неделю Daily:",
+        "schedule": "📅 Расписание Daily:",
         "no_events": "Событий не найдено. Попробуйте /refresh",
         "no_week": "На ближайшие 7 дней событий нет. Попробуйте /refresh",
         "refreshing": "🔄 Расписание обновляется, попробуйте через минуту.",
@@ -52,14 +52,14 @@ T = {
         "tz_set": "✅ Часовой пояс установлен: {tz}",
         "tz_invalid": "❌ Неверный часовой пояс. Пример: Europe/Kyiv или +3",
         "weekly_empty": "📅 На ближайшую неделю событий нет.",
-        "weekly_title": "📅 Расписание LMU на неделю Daily:",
+        "weekly_title": "📅 Расписание LMU Daily:",
         "dur": "⏱ Длительность: {dur}",
         "start_in": "через {h}ч {m}мин",
     },
     "uk": {
         "start": "Привіт! Я бот розкладу Le Mans Ultimate (дані з RaceControl.gg).\n\nКоманди:\n",
         "next": "🏁 Найближчі гонки за категоріями:",
-        "schedule": "📅 Розклад на тиждень Daily:",
+        "schedule": "📅 Розклад Daily:",
         "no_events": "Подій не знайдено. Спробуйте /refresh",
         "no_week": "На найближчі 7 днів подій немає. Спробуйте /refresh",
         "refreshing": "🔄 Розклад оновлюється, спробуйте через хвилину.",
@@ -72,7 +72,7 @@ T = {
         "tz_set": "✅ Часовий пояс встановлено: {tz}",
         "tz_invalid": "❌ Невірний часовий пояс. Приклад: Europe/Kyiv або +3",
         "weekly_empty": "📅 На найближчий тиждень подій немає.",
-        "weekly_title": "📅 Розклад LMU на тиждень Daily:",
+        "weekly_title": "📅 Розклад LMU Daily:",
         "dur": "⏱ Тривалість: {dur}",
         "start_in": "через {h}год {m}хв",
     },
@@ -92,7 +92,7 @@ T = {
         "tz_set": "✅ Timezone set: {tz}",
         "tz_invalid": "❌ Invalid timezone. Example: Europe/Kyiv or +3",
         "weekly_empty": "📅 No events in the upcoming week.",
-        "weekly_title": "📅 LMU Weekly Schedule Daily:",
+        "weekly_title": "📅 LMU Weekly Schedule:",
         "dur": "⏱ Duration: {dur}",
         "start_in": "in {h}h {m}min",
     },
@@ -154,9 +154,11 @@ async def init_db():
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 chat_id BIGINT PRIMARY KEY,
-                first_seen TIMESTAMPTZ DEFAULT NOW()
+                first_seen TIMESTAMPTZ DEFAULT NOW(),
+                last_seen TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ DEFAULT NOW()")
         await conn.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS lang TEXT DEFAULT 'ru'")
         await conn.execute("ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS feedback_mode INTEGER DEFAULT 0")
 
@@ -172,14 +174,15 @@ async def subscribe(chat_id):
 async def track_user(chat_id):
     async with DB_POOL.acquire() as conn:
         await conn.execute(
-            "INSERT INTO users (chat_id) VALUES ($1) ON CONFLICT (chat_id) DO NOTHING",
+            "INSERT INTO users (chat_id) VALUES ($1) ON CONFLICT (chat_id) DO UPDATE SET last_seen=NOW()",
             chat_id
         )
 
 
 async def unsubscribe(chat_id):
+    await subscribe(chat_id)
     async with DB_POOL.acquire() as conn:
-        await conn.execute("DELETE FROM subscribers WHERE chat_id=$1", chat_id)
+        await conn.execute("UPDATE subscribers SET daily=0 WHERE chat_id=$1", chat_id)
 
 
 async def is_subscribed(chat_id):
@@ -303,6 +306,17 @@ async def mark_sent(event_id, chat_id, kind):
         )
 
 
+async def cleanup_inactive(days=90):
+    async with DB_POOL.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM subscribers WHERE chat_id IN (SELECT chat_id FROM users WHERE last_seen < NOW() - INTERVAL '%s days')" % days
+        )
+        await conn.execute(
+            "DELETE FROM users WHERE last_seen < NOW() - INTERVAL '%s days'" % days
+        )
+    print(f"Cleaned up users inactive for {days} days")
+
+
 # ---------- RaceControl parser ----------
 async def fetch_racecontrol_events():
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
@@ -414,7 +428,7 @@ async def cmd_start(msg: types.Message):
         [InlineKeyboardButton(text=("✅ Подписаться" if lang == "ru" else "✅ Підписатися" if lang == "uk" else "✅ Subscribe") if not await is_subscribed(msg.chat.id) else ("❌ Отписаться" if lang == "ru" else "❌ Відписатися" if lang == "uk" else "❌ Unsubscribe"), callback_data="menu:sub" if not await is_subscribed(msg.chat.id) else "menu:unsub")],
         [InlineKeyboardButton(text="🕐 " + ("Часовой пояс" if lang == "ru" else "Часовий пояс" if lang == "uk" else "Timezone"), callback_data="settings:tz")],
         [InlineKeyboardButton(text="🌐 " + ("Язык" if lang == "ru" else "Мова" if lang == "uk" else "Language"), callback_data="settings:lang")],
-        [InlineKeyboardButton(text="💡 " + ("Пожелания" if lang == "ru" else "Побажання" if lang == "uk" else "Feedback"), callback_data="menu:feedback")],
+        [InlineKeyboardButton(text="💡 " + ("Обратная связь" if lang == "ru" else "Зворотний зв'язок" if lang == "uk" else "Feedback"), callback_data="menu:feedback")],
     ])
     if ADMIN_CHAT_ID and str(msg.chat.id) == str(ADMIN_CHAT_ID):
         kb.inline_keyboard.append([InlineKeyboardButton(text="🔧 Admin", callback_data="menu:admin")])
@@ -455,7 +469,7 @@ async def cb_menu_settings(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🕐 " + ("Часовой пояс" if lang == "ru" else "Часовий пояс" if lang == "uk" else "Timezone"), callback_data="settings:tz")],
         [InlineKeyboardButton(text="🌐 " + ("Язык" if lang == "ru" else "Мова" if lang == "uk" else "Language"), callback_data="settings:lang")],
-        [InlineKeyboardButton(text="💡 " + ("Пожелания" if lang == "ru" else "Побажання" if lang == "uk" else "Feedback"), callback_data="menu:feedback")],
+        [InlineKeyboardButton(text="💡 " + ("Обратная связь" if lang == "ru" else "Зворотний зв'язок" if lang == "uk" else "Feedback"), callback_data="menu:feedback")],
     ])
     await callback.message.answer("⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), reply_markup=kb)
 
@@ -661,6 +675,7 @@ async def cmd_schedule(msg: types.Message):
     tz = get_tzinfo(tz_name, off)
     label = tz_label(tz_name, off)
     by_cat = {}
+    has_future_today = False
     for e in load_events():
         dt = parse_dt(e["start_utc"])
         if not (0 <= (dt - now).total_seconds() <= 7 * 86400):
@@ -668,6 +683,8 @@ async def cmd_schedule(msg: types.Message):
         cat = (e.get("class") or "").strip() or "Other"
         key = (e.get("title"), e.get("track"))
         by_cat.setdefault(cat, {}).setdefault(key, []).append(dt)
+        if dt.date() == now.date() and dt > now:
+            has_future_today = True
     if not by_cat:
         await msg.answer(tr("no_week", lang))
         return
@@ -679,7 +696,7 @@ async def cmd_schedule(msg: types.Message):
             continue
         medal = medals.get(cat, "🏅")
         lines.append(f"\n{medal} {cat} {medal}")
-        races = list(by_cat[cat].items())
+        races = sorted(by_cat[cat].items(), key=lambda x: min(t.astimezone(tz) for t in x[1]))
         for idx, ((title, track), times) in enumerate(races):
             try:
                 times_sorted = sorted(set(t.astimezone(tz).strftime("%H:%M") for t in times))
@@ -693,7 +710,8 @@ async def cmd_schedule(msg: types.Message):
                     break
             dur_str = f" ({dur})" if dur else ""
             lines.append(f"• {title} — {track}{dur_str}")
-            lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
+            if has_future_today:
+                lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
             if idx < len(races) - 1:
                 lines.append("")
         lines.append("")
@@ -764,17 +782,17 @@ def get_commands(lang, is_admin=False):
         if lang == "en":
             cmds += [
                 BotCommand(command="refresh", description="Refresh schedule"),
-                BotCommand(command="stats", description="Statistics"),
+                BotCommand(command="health", description="Health check"),
             ]
         elif lang == "uk":
             cmds += [
                 BotCommand(command="refresh", description="Оновити розклад"),
-                BotCommand(command="stats", description="Статистика"),
+                BotCommand(command="health", description="Проверка бота"),
             ]
         else:
             cmds += [
                 BotCommand(command="refresh", description="Обновить расписание"),
-                BotCommand(command="stats", description="Статистика"),
+                BotCommand(command="health", description="Проверка бота"),
             ]
     return cmds
 
@@ -811,23 +829,54 @@ async def cmd_refresh(msg: types.Message):
         await msg.answer(tr("refresh_fail", lang))
 
 
-@dp.message(Command("stats"))
-async def cmd_stats(msg: types.Message):
+@dp.message(Command("health"))
+async def cmd_health(msg: types.Message):
     if not ADMIN_CHAT_ID or str(msg.chat.id) != str(ADMIN_CHAT_ID):
         return
     lang = await get_lang(msg.chat.id)
-    async with DB_POOL.acquire() as conn:
-        users = await conn.fetchval("SELECT COUNT(*) FROM users")
-        subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers")
-    await msg.answer(
-        f"📊 Статистика бота:\n"
-        f"Пользователей: {users}\n"
-        f"Подписчиков: {subs}"
-        if lang == "ru" else
-        f"📊 Bot stats:\n"
-        f"Users: {users}\n"
-        f"Subscribers: {subs}"
-    )
+    # Telegram API
+    tg_ok = "✅"
+    try:
+        await bot.get_me()
+    except Exception:
+        tg_ok = "❌"
+    # Supabase
+    db_ok = "✅"
+    last_update = "—"
+    users = 0
+    subs = 0
+    events = 0
+    try:
+        async with DB_POOL.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+            users = await conn.fetchval("SELECT COUNT(*) FROM users")
+            subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers")
+        events = len(load_events())
+        if _last_rc_update:
+            last_update = _last_rc_update.strftime("%d.%m.%Y %H:%M UTC")
+    except Exception:
+        db_ok = "❌"
+    if lang == "ru":
+        text = (
+            "Проверка LMU Schedule Bot\n\n"
+            f"{tg_ok} Telegram API: работает\n"
+            f"{db_ok} Supabase / PostgreSQL: работает\n\n"
+            f"👥 Пользователей: {users}\n"
+            f"📨 Подписчиков: {subs}\n"
+            f"✅ Расписание: {events} событий\n"
+            f"🕒 Последнее обновление: {last_update}"
+        )
+    else:
+        text = (
+            "LMU Schedule Bot health check\n\n"
+            f"{tg_ok} Telegram API: ok\n"
+            f"{db_ok} Supabase / PostgreSQL: ok\n\n"
+            f"👥 Users: {users}\n"
+            f"📨 Subscribers: {subs}\n"
+            f"✅ Schedule: {events} events\n"
+            f"🕒 Last update: {last_update}"
+        )
+    await msg.answer(text)
 
 
 @dp.message(Command("admin"))
@@ -965,10 +1014,11 @@ async def main():
     if WEBHOOK_URL:
         await bot.set_webhook(WEBHOOK_URL)
 
-    scheduler.add_job(update_rc_cache, "cron", hour=0, minute=0)  # ежедневно в 00:00 UTC
-    scheduler.add_job(update_rc_cache, "cron", day_of_week="tue", hour=10, minute=10)
+    scheduler.add_job(update_rc_cache, "cron", hour=0, minute=15)  # ежедневно в 00:15 UTC
+    scheduler.add_job(update_rc_cache, "cron", day_of_week="tue", hour=10, minute=15)
     scheduler.add_job(weekly_digest, "cron", day_of_week="tue", hour=10, minute=30)
     scheduler.add_job(update_rc_cache, "interval", hours=6)
+    scheduler.add_job(cleanup_inactive, "cron", hour=3, minute=0)  # ежедневно в 03:00 UTC
     scheduler.start()
 
     await asyncio.Event().wait()
