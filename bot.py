@@ -468,8 +468,8 @@ async def cb_menu_settings(callback: types.CallbackQuery):
     await callback.answer()
     lang = await get_lang(callback.from_user.id)
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), callback_data="menu:settings")],
-        [InlineKeyboardButton(text="💡 " + ("Обратная связь" if lang == "ru" else "Зворотний зв'язок" if lang == "uk" else "Feedback"), callback_data="menu:feedback")],
+        [InlineKeyboardButton(text="🕐 " + ("Часовой пояс" if lang == "ru" else "Часовий пояс" if lang == "uk" else "Timezone"), callback_data="settings:tz")],
+        [InlineKeyboardButton(text="🌐 " + ("Язык" if lang == "ru" else "Мова" if lang == "uk" else "Language"), callback_data="settings:lang")],
     ])
     await callback.message.answer("⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), reply_markup=kb)
 
