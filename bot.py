@@ -790,23 +790,9 @@ def get_commands(lang, is_admin=False):
             BotCommand(command="tz", description="Часовой пояс"),
             BotCommand(command="lang", description="Язык"),
         ]
-    if is_admin:
-        if lang == "en":
-            cmds += [
-                BotCommand(command="refresh", description="Refresh schedule"),
-                BotCommand(command="health", description="Health check"),
-            ]
-        elif lang == "uk":
-            cmds += [
-                BotCommand(command="refresh", description="Оновити розклад"),
-                BotCommand(command="health", description="Проверка бота"),
-            ]
-        else:
-            cmds += [
-                BotCommand(command="refresh", description="Обновить расписание"),
-                BotCommand(command="health", description="Проверка бота"),
-            ]
-    return cmds
+    # В меню (☰) только /start — остальное через inline-кнопки
+    desc = {"ru": "Запуск бота", "uk": "Запуск бота", "en": "Start bot"}
+    return [BotCommand(command="start", description=desc.get(lang, "Запуск бота"))]
 
 
 @dp.callback_query(F.data.startswith("lang:"))
