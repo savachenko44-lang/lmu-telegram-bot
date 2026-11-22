@@ -266,6 +266,8 @@ def parse_offset(s):
 
 
 def get_tzinfo(tz_name, offset_minutes=0):
+    if tz_name == "UTC" and offset_minutes:
+        return timezone(timedelta(minutes=offset_minutes))
     try:
         return ZoneInfo(tz_name)
     except Exception:
@@ -426,8 +428,7 @@ async def cmd_start(msg: types.Message):
         [InlineKeyboardButton(text="🏁 " + ("Ближайшие" if lang == "ru" else "Найближчі" if lang == "uk" else "Nearest"), callback_data="menu:next")],
         [InlineKeyboardButton(text="📅 " + ("Расписание" if lang == "ru" else "Розклад" if lang == "uk" else "Schedule"), callback_data="menu:schedule")],
         [InlineKeyboardButton(text=("✅ Подписаться" if lang == "ru" else "✅ Підписатися" if lang == "uk" else "✅ Subscribe") if not await is_subscribed(msg.chat.id) else ("❌ Отписаться" if lang == "ru" else "❌ Відписатися" if lang == "uk" else "❌ Unsubscribe"), callback_data="menu:sub" if not await is_subscribed(msg.chat.id) else "menu:unsub")],
-        [InlineKeyboardButton(text="🕐 " + ("Часовой пояс" if lang == "ru" else "Часовий пояс" if lang == "uk" else "Timezone"), callback_data="settings:tz")],
-        [InlineKeyboardButton(text="🌐 " + ("Язык" if lang == "ru" else "Мова" if lang == "uk" else "Language"), callback_data="settings:lang")],
+        [InlineKeyboardButton(text="⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), callback_data="menu:settings")],
         [InlineKeyboardButton(text="💡 " + ("Обратная связь" if lang == "ru" else "Зворотний зв'язок" if lang == "uk" else "Feedback"), callback_data="menu:feedback")],
     ])
     if ADMIN_CHAT_ID and str(msg.chat.id) == str(ADMIN_CHAT_ID):
@@ -467,8 +468,7 @@ async def cb_menu_settings(callback: types.CallbackQuery):
     await callback.answer()
     lang = await get_lang(callback.from_user.id)
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🕐 " + ("Часовой пояс" if lang == "ru" else "Часовий пояс" if lang == "uk" else "Timezone"), callback_data="settings:tz")],
-        [InlineKeyboardButton(text="🌐 " + ("Язык" if lang == "ru" else "Мова" if lang == "uk" else "Language"), callback_data="settings:lang")],
+        [InlineKeyboardButton(text="⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), callback_data="menu:settings")],
         [InlineKeyboardButton(text="💡 " + ("Обратная связь" if lang == "ru" else "Зворотний зв'язок" if lang == "uk" else "Feedback"), callback_data="menu:feedback")],
     ])
     await callback.message.answer("⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), reply_markup=kb)
@@ -886,7 +886,7 @@ async def cmd_admin(msg: types.Message):
     lang = await get_lang(msg.chat.id)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Обновить расписание" if lang == "ru" else "🔄 Refresh schedule", callback_data="admin:refresh")],
-        [InlineKeyboardButton(text="📊 Статистика" if lang == "ru" else "📊 Stats", callback_data="admin:stats")],
+        [InlineKeyboardButton(text="📊 Проверка бота" if lang == "ru" else "📊 Health check", callback_data="admin:health")],
     ])
     await msg.answer("Админ-панель:" if lang == "ru" else "Admin panel:", reply_markup=kb)
 
@@ -903,16 +903,51 @@ async def cb_admin_refresh(callback: types.CallbackQuery):
     await callback.answer()
 
 
-@dp.callback_query(F.data == "admin:stats")
-async def cb_admin_stats(callback: types.CallbackQuery):
+@dp.callback_query(F.data == "admin:health")
+async def cb_admin_health(callback: types.CallbackQuery):
     if not ADMIN_CHAT_ID or str(callback.from_user.id) != str(ADMIN_CHAT_ID):
         return
     lang = await get_lang(callback.from_user.id)
-    async with DB_POOL.acquire() as conn:
-        users = await conn.fetchval("SELECT COUNT(*) FROM users")
-        subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers")
-    text = (f"📊 Статистика:\nПользователей: {users}\nПодписчиков: {subs}" if lang == "ru"
-            else f"📊 Stats:\nUsers: {users}\nSubscribers: {subs}")
+    tg_ok = "✅"
+    try:
+        await bot.get_me()
+    except Exception:
+        tg_ok = "❌"
+    db_ok = "✅"
+    last_update = "—"
+    users = 0
+    subs = 0
+    events = 0
+    try:
+        async with DB_POOL.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+            users = await conn.fetchval("SELECT COUNT(*) FROM users")
+            subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers")
+        events = len(load_events())
+        if _last_rc_update:
+            last_update = _last_rc_update.strftime("%d.%m.%Y %H:%M UTC")
+    except Exception:
+        db_ok = "❌"
+    if lang == "ru":
+        text = (
+            "Проверка LMU Schedule Bot\n\n"
+            f"{tg_ok} Telegram API: работает\n"
+            f"{db_ok} Supabase / PostgreSQL: работает\n\n"
+            f"👥 Пользователей: {users}\n"
+            f"📨 Подписчиков: {subs}\n"
+            f"✅ Расписание: {events} событий\n"
+            f"🕒 Последнее обновление: {last_update}"
+        )
+    else:
+        text = (
+            "LMU Schedule Bot health check\n\n"
+            f"{tg_ok} Telegram API: ok\n"
+            f"{db_ok} Supabase / PostgreSQL: ok\n\n"
+            f"👥 Users: {users}\n"
+            f"📨 Subscribers: {subs}\n"
+            f"✅ Schedule: {events} events\n"
+            f"🕒 Last update: {last_update}"
+        )
     await callback.message.edit_text(text)
     await callback.answer()
 
