@@ -865,7 +865,12 @@ async def cmd_health(msg: types.Message):
             subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers")
         events = len(load_events())
         if _last_rc_update:
-            last_update = _last_rc_update.strftime("%d.%m.%Y %H:%M UTC")
+            tz_name = await get_tz(msg.chat.id)
+            off = await get_offset_minutes(msg.chat.id)
+            tz = get_tzinfo(tz_name, off)
+            label = tz_label(tz_name, off)
+            local = _last_rc_update.astimezone(tz)
+            last_update = f"{local.strftime('%d.%m.%Y %H:%M')} ({label})"
     except Exception:
         db_ok = "❌"
     if lang == "ru":
@@ -937,7 +942,14 @@ async def cb_admin_health(callback: types.CallbackQuery):
             subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers")
         events = len(load_events())
         if _last_rc_update:
-            last_update = _last_rc_update.strftime("%d.%m.%Y %H:%M UTC")
+            tz_name = await get_tz(callback.from_user.id)
+            off = await get_offset_minutes(callback.from_user.id)
+            tz = get_tzinfo(tz_name, off)
+            label = tz_label(tz_name, off)
+            local = _last_rc_update.astimezone(tz)
+            last_update = f"{local.strftime('%d.%m.%Y %H:%M')} ({label})"
+    except Exception:
+        db_ok = "❌"
     except Exception:
         db_ok = "❌"
     if lang == "ru":
