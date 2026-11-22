@@ -674,6 +674,7 @@ async def cmd_schedule(msg: types.Message):
     off = await get_offset_minutes(msg.chat.id)
     tz = get_tzinfo(tz_name, off)
     label = tz_label(tz_name, off)
+    await msg.answer(f"DEBUG: tz_name={tz_name} off={off} label={label}")
     by_cat = {}
     has_future_today = False
     for e in load_events():
