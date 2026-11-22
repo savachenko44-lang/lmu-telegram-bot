@@ -696,7 +696,7 @@ async def cmd_schedule(msg: types.Message):
             continue
         medal = medals.get(cat, "🏅")
         lines.append(f"\n{medal} {cat} {medal}")
-        races = sorted(by_cat[cat].items(), key=lambda x: min(t.astimezone(tz) for t in x[1]))
+        races = sorted(by_cat[cat].items(), key=lambda x: min(t for t in x[1]))
         for idx, ((title, track), times) in enumerate(races):
             try:
                 times_sorted = sorted(set(t.astimezone(tz).strftime("%H:%M") for t in times))
