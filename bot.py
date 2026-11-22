@@ -49,7 +49,7 @@ MONTHS = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
 
 T = {
     "ru": {
-        "start": "Привет! Я бот расписания Le Mans Ultimate (данные с RaceControl.gg).\n\nКоманды:\n",
+        "start": "Привет! Я бот расписания Le Mans Ultimate.\n(данные с RaceControl.gg)\n\n",
         "next": "🏁 Ближайшие гонки по категориям:",
         "schedule": "📅 Расписание Daily:",
         "no_events": "Событий не найдено. Попробуйте /refresh",
@@ -69,7 +69,7 @@ T = {
         "start_in": "через {h}ч {m}мин",
     },
     "uk": {
-        "start": "Привіт! Я бот розкладу Le Mans Ultimate (дані з RaceControl.gg).\n\nКоманди:\n",
+        "start": "Привіт! Я бот розкладу Le Mans Ultimate.\n(дані з RaceControl.gg)\n\n",
         "next": "🏁 Найближчі гонки за категоріями:",
         "schedule": "📅 Розклад Daily:",
         "no_events": "Подій не знайдено. Спробуйте /refresh",
@@ -89,7 +89,7 @@ T = {
         "start_in": "через {h}год {m}хв",
     },
     "en": {
-        "start": "Hi! I'm the Le Mans Ultimate schedule bot (data from RaceControl.gg).\n\nCommands:\n",
+        "start": "Hi! I'm the Le Mans Ultimate schedule bot.\n(data from RaceControl.gg)\n\n",
         "next": "🏁 Nearest races by category:",
         "schedule": "📅 Weekly schedule Daily:",
         "no_events": "No events found. Try /refresh",
