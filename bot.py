@@ -438,7 +438,7 @@ async def cmd_start(msg: types.Message):
         sub_status = "❌ " + ("Вы не подписаны. /subscribe" if lang == "ru" else "Ви не підписані. /subscribe" if lang == "uk" else "Not subscribed. /subscribe")
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏁 " + ("Ближайшие" if lang == "ru" else "Найближчі" if lang == "uk" else "Nearest"), callback_data="menu:next")],
-        [InlineKeyboardButton(text="📅 " + ("Расписание" if lang == "ru" else "Розклад" if lang == "uk" else "Schedule"), callback_data="menu:schedule")],
+        [InlineKeyboardButton(text="📅 " + ("Расписание Daily" if lang == "ru" else "Розклад Daily" if lang == "uk" else "Schedule Daily"), callback_data="menu:schedule")],
         [InlineKeyboardButton(text=("✅ Подписаться" if lang == "ru" else "✅ Підписатися" if lang == "uk" else "✅ Subscribe") if not await is_subscribed(msg.chat.id) else ("❌ Отписаться" if lang == "ru" else "❌ Відписатися" if lang == "uk" else "❌ Unsubscribe"), callback_data="menu:sub" if not await is_subscribed(msg.chat.id) else "menu:unsub")],
         [InlineKeyboardButton(text="⚙️ " + ("Настройки" if lang == "ru" else "Налаштування" if lang == "uk" else "Settings"), callback_data="menu:settings")],
         [InlineKeyboardButton(text="💡 " + ("Обратная связь" if lang == "ru" else "Зворотний зв'язок" if lang == "uk" else "Feedback"), callback_data="menu:feedback")],
