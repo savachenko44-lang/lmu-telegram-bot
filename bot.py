@@ -690,7 +690,10 @@ async def cmd_schedule(msg: types.Message):
     has_future_today = False
     for e in load_events():
         dt = parse_dt(e["start_utc"])
-        if not (0 <= (dt - now).total_seconds() <= 7 * 86400):
+        # показывать гонки за последние 24 часа + ближайшие 7 дней
+        if (dt - now).total_seconds() < -86400:
+            continue
+        if (dt - now).total_seconds() > 7 * 86400:
             continue
         cat = (e.get("class") or "").strip() or "Other"
         key = (e.get("title"), e.get("track"))
@@ -700,6 +703,9 @@ async def cmd_schedule(msg: types.Message):
     if not by_cat:
         await msg.answer(tr("no_week", lang))
         return
+    # отладка: показать количество событий и будущих
+    future_count = sum(1 for e in load_events() if parse_dt(e["start_utc"]) > now)
+    await msg.answer(f"DEBUG: total={len(load_events())}, future={future_count}, has_future_today={has_future_today}")
     order = ["Beginner", "Intermediate", "Advanced"]
     medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
     lines = [tr("schedule", lang)]
