@@ -690,11 +690,6 @@ async def cmd_schedule(msg: types.Message):
     has_future_today = False
     for e in load_events():
         dt = parse_dt(e["start_utc"])
-        # не показывать гонки старше 7 дней
-        if (dt - now).total_seconds() < -7 * 86400:
-            continue
-        if (dt - now).total_seconds() > 7 * 86400:
-            continue
         cat = (e.get("class") or "").strip() or "Other"
         key = (e.get("title"), e.get("track"))
         by_cat.setdefault(cat, {}).setdefault(key, []).append(dt)
@@ -722,7 +717,8 @@ async def cmd_schedule(msg: types.Message):
                     break
             dur_str = f" ({dur})" if dur else ""
             lines.append(f"• {title} — {track}{dur_str}")
-            lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
+            if has_future_today:
+                lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
             if idx < len(races) - 1:
                 lines.append("")
         lines.append("")
