@@ -690,8 +690,8 @@ async def cmd_schedule(msg: types.Message):
     has_future_today = False
     for e in load_events():
         dt = parse_dt(e["start_utc"])
-        # показывать гонки за последние 24 часа + ближайшие 7 дней
-        if (dt - now).total_seconds() < -86400:
+        # не показывать гонки старше 7 дней
+        if (dt - now).total_seconds() < -7 * 86400:
             continue
         if (dt - now).total_seconds() > 7 * 86400:
             continue
@@ -700,12 +700,6 @@ async def cmd_schedule(msg: types.Message):
         by_cat.setdefault(cat, {}).setdefault(key, []).append(dt)
         if dt.date() == now.date() and dt > now:
             has_future_today = True
-    if not by_cat:
-        await msg.answer(tr("no_week", lang))
-        return
-    # отладка: показать количество событий и будущих
-    future_count = sum(1 for e in load_events() if parse_dt(e["start_utc"]) > now)
-    await msg.answer(f"DEBUG: total={len(load_events())}, future={future_count}, has_future_today={has_future_today}")
     order = ["Beginner", "Intermediate", "Advanced"]
     medals = {"Beginner": "🥉", "Intermediate": "🥈", "Advanced": "🥇"}
     lines = [tr("schedule", lang)]
@@ -728,8 +722,7 @@ async def cmd_schedule(msg: types.Message):
                     break
             dur_str = f" ({dur})" if dur else ""
             lines.append(f"• {title} — {track}{dur_str}")
-            if has_future_today:
-                lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
+            lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
             if idx < len(races) - 1:
                 lines.append("")
         lines.append("")
