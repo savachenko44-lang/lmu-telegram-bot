@@ -196,6 +196,7 @@ async def subscribe(chat_id):
             "INSERT INTO subscribers (chat_id) VALUES ($1) ON CONFLICT (chat_id) DO NOTHING",
             chat_id
         )
+        await conn.execute("UPDATE subscribers SET daily=1 WHERE chat_id=$1", chat_id)
 
 
 async def track_user(chat_id):
@@ -214,7 +215,7 @@ async def unsubscribe(chat_id):
 
 async def is_subscribed(chat_id):
     async with DB_POOL.acquire() as conn:
-        row = await conn.fetchrow("SELECT 1 FROM subscribers WHERE chat_id=$1", chat_id)
+        row = await conn.fetchrow("SELECT 1 FROM subscribers WHERE chat_id=$1 AND daily=1", chat_id)
     return row is not None
 
 
@@ -997,7 +998,7 @@ async def cmd_health(msg: types.Message):
         async with DB_POOL.acquire() as conn:
             await conn.fetchval("SELECT 1")
             users = await conn.fetchval("SELECT COUNT(*) FROM users")
-            subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers")
+            subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers WHERE daily=1")
         events = len(load_events())
         if _last_rc_update:
             tz_name = await get_tz(msg.chat.id)
@@ -1074,7 +1075,7 @@ async def cb_admin_health(callback: types.CallbackQuery):
         async with DB_POOL.acquire() as conn:
             await conn.fetchval("SELECT 1")
             users = await conn.fetchval("SELECT COUNT(*) FROM users")
-            subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers")
+            subs = await conn.fetchval("SELECT COUNT(*) FROM subscribers WHERE daily=1")
         events = len(load_events())
         if _last_rc_update:
             tz_name = await get_tz(callback.from_user.id)
