@@ -11,6 +11,7 @@ import httpx
 from bs4 import BeautifulSoup
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import InlineQueryResultArticle, InputTextMessageContent, BufferedInputFile
 from aiogram.types import BotCommand, BotCommandScopeChat
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
@@ -684,7 +685,11 @@ async def cmd_next(msg: types.Message):
             f"{e['title']} — {e['track']}\n"
             f"⏰ {local.strftime('%H:%M')} ({label}) ({tr('start_in', lang, h=hours, m=mins)}){dur_line}"
         )
-    await msg.answer("\n".join(lines))
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 " + ("Поделиться" if lang == "ru" else "Поділитися" if lang == "uk" else "Share"), switch_inline_query="")],
+        [InlineKeyboardButton(text="🔄 " + ("Обновить" if lang == "ru" else "Оновити" if lang == "uk" else "Refresh"), callback_data="next:refresh")],
+    ])
+    await msg.answer("\n".join(lines), reply_markup=kb)
 
 
 @dp.message(Command("schedule"))
@@ -736,7 +741,58 @@ async def cmd_schedule(msg: types.Message):
             if idx < len(races) - 1:
                 lines.append("")
         lines.append("")
-    await msg.answer("\n".join(lines))
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 " + ("Поделиться" if lang == "ru" else "Поділитися" if lang == "uk" else "Share"), switch_inline_query="")],
+        [InlineKeyboardButton(text="🔄 " + ("Обновить" if lang == "ru" else "Оновити" if lang == "uk" else "Refresh"), callback_data="schedule:refresh")],
+    ])
+    await msg.answer("\n".join(lines), reply_markup=kb)
+
+
+@dp.message(Command("export"))
+async def cmd_export(msg: types.Message):
+    now = datetime.now(timezone.utc)
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//LMU Bot//EN",
+        "CALSCALE:GREGORIAN",
+    ]
+    for e in load_events():
+        dt = parse_dt(e["start_utc"])
+        if dt <= now:
+            continue
+        dur_str = e.get("duration", "")
+        mins = 30
+        m = re.search(r"(\d+)\s*h", dur_str, re.I)
+        if m:
+            mins = int(m.group(1)) * 60
+        m = re.search(r"(\d+)\s*min", dur_str, re.I)
+        if m:
+            mins = int(m.group(1))
+        end = dt + timedelta(minutes=mins)
+        lines.append("BEGIN:VEVENT")
+        lines.append(f"UID:{e['id']}@lmu-bot")
+        lines.append(f"DTSTART:{dt.strftime('%Y%m%dT%H%M%SZ')}")
+        lines.append(f"DTEND:{end.strftime('%Y%m%dT%H%M%SZ')}")
+        lines.append(f"SUMMARY:{e['title']} - {e['track']}")
+        lines.append(f"DESCRIPTION:Class: {e['class']}\\nDuration: {dur_str}")
+        lines.append("END:VEVENT")
+    lines.append("END:VCALENDAR")
+    content = "\n".join(lines)
+    file = BufferedInputFile(content.encode("utf-8"), filename="lmu_schedule.ics")
+    await msg.answer_document(file, caption="📅 Расписание гонок LMU (.ics)")
+
+
+@dp.callback_query(F.data == "schedule:refresh")
+async def cb_schedule_refresh(callback: types.CallbackQuery):
+    await callback.answer()
+    await cmd_schedule(callback.message)
+
+
+@dp.callback_query(F.data == "next:refresh")
+async def cb_next_refresh(callback: types.CallbackQuery):
+    await callback.answer()
+    await cmd_next(callback.message)
 
 
 @dp.message(Command("subscribe"))
@@ -986,6 +1042,32 @@ async def handle_text(msg: types.Message):
                                  else "✅ Thanks! Feedback sent."))
 
 
+@dp.inline_query()
+async def inline_query_handler(inline_query: types.InlineQuery):
+    query = (inline_query.query or "").strip().lower()
+    now = datetime.now(timezone.utc)
+    results = []
+    for e in load_events():
+        dt = parse_dt(e["start_utc"])
+        if dt <= now:
+            continue
+        if query and query not in e["title"].lower() and query not in (e.get("track") or "").lower():
+            continue
+        text = (
+            f"🏁 {e['title']}\n"
+            f"Трасса: {e['track']} | Класс: {e['class']}\n"
+            f"Старт: {e['start_utc']} UTC\n"
+            f"Длительность: {format_duration(e.get('duration', ''))}"
+        )
+        results.append(InlineQueryResultArticle(
+            id=e["id"],
+            title=e["title"],
+            description=f"{e['track']} | {e['class']} | {e['start_utc']}",
+            input_message_content=InputTextMessageContent(message_text=text),
+        ))
+    await inline_query.answer(results[:50], cache_time=300)
+
+
 @dp.message(Command("help"))
 async def cmd_help(msg: types.Message):
     lang = await get_lang(msg.chat.id)
@@ -1043,6 +1125,14 @@ async def health(request):
     return web.Response(text="ok")
 
 
+async def metrics(request):
+    data = {
+        "last_update": _last_rc_update.isoformat() if _last_rc_update else None,
+        "events": len(load_events()),
+    }
+    return web.json_response(data)
+
+
 async def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     await init_db()
@@ -1059,6 +1149,7 @@ async def main():
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
     setup_application(app, dp, bot=bot)
     app.router.add_get("/", health)
+    app.router.add_get("/metrics", metrics)
 
     runner = web.AppRunner(app)
     await runner.setup()
