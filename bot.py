@@ -1177,6 +1177,16 @@ async def safe_send(chat_id, text):
 
 
 async def weekly_digest():
+    # принудительно обновить расписание перед рассылкой
+    n = await update_rc_cache(force=True)
+    if not n:
+        # не удалось обновить — не рассылаем
+        if ADMIN_CHAT_ID:
+            try:
+                await bot.send_message(int(ADMIN_CHAT_ID), "❌ Рассылка отменена: не удалось обновить расписание.")
+            except Exception:
+                pass
+        return
     now = datetime.now(timezone.utc)
     events = []
     for e in load_events():
