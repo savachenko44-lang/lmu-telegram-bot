@@ -1177,15 +1177,16 @@ async def safe_send(chat_id, text):
 
 
 async def weekly_digest():
-    # принудительно обновить расписание перед рассылкой
+    # принудительно обновить расписание перед рассылкой (повторять каждые 10 мин до успеха)
     n = await update_rc_cache(force=True)
     if not n:
-        # не удалось обновить — не рассылаем
         if ADMIN_CHAT_ID:
             try:
-                await bot.send_message(int(ADMIN_CHAT_ID), "❌ Рассылка отменена: не удалось обновить расписание.")
+                await bot.send_message(int(ADMIN_CHAT_ID), "⚠️ Не удалось обновить расписание. Повтор через 10 мин.")
             except Exception:
                 pass
+        # повторить через 10 минут
+        scheduler.add_job(weekly_digest, "date", run_date=datetime.now(timezone.utc) + timedelta(minutes=10))
         return
     now = datetime.now(timezone.utc)
     events = []
