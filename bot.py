@@ -23,6 +23,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 PORT = int(os.getenv("PORT", "10000"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+REFRESH_SECRET = os.getenv("REFRESH_SECRET")
 DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).parent / "data")))
 SCHEDULE_PATH = Path(__file__).parent / "data" / "schedule.json"
 RC_CACHE_PATH = DATA_DIR / "rc_schedule.json"
@@ -1208,6 +1209,14 @@ async def health(request):
     return web.Response(text="ok")
 
 
+async def refresh_endpoint(request):
+    token = request.query.get("token")
+    if not REFRESH_SECRET or token != REFRESH_SECRET:
+        return web.Response(status=403, text="Forbidden")
+    n = await update_rc_cache(force=True)
+    return web.json_response({"updated": n})
+
+
 async def metrics(request):
     data = {
         "last_update": _last_rc_update.isoformat() if _last_rc_update else None,
@@ -1233,6 +1242,7 @@ async def main():
     setup_application(app, dp, bot=bot)
     app.router.add_get("/", health)
     app.router.add_get("/metrics", metrics)
+    app.router.add_get("/refresh", refresh_endpoint)
 
     runner = web.AppRunner(app)
     await runner.setup()
