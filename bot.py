@@ -725,7 +725,7 @@ async def cmd_schedule(msg: types.Message):
         for idx, ((title, track), times) in enumerate(races):
             try:
                 future_times = [t for t in times if t > now]
-            times_sorted = list(dict.fromkeys(t.astimezone(tz).strftime("%H:%M") for t in sorted(future_times)))
+                times_sorted = list(dict.fromkeys(t.astimezone(tz).strftime("%H:%M") for t in sorted(future_times)))
             except Exception as ex:
                 await msg.answer(f"❌ Ошибка времени: {ex}")
                 return
