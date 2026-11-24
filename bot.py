@@ -1040,6 +1040,7 @@ async def cmd_admin(msg: types.Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Обновить расписание" if lang == "ru" else "🔄 Refresh schedule", callback_data="admin:refresh")],
         [InlineKeyboardButton(text="📊 Проверка бота" if lang == "ru" else "📊 Health check", callback_data="admin:health")],
+        [InlineKeyboardButton(text="📢 Рассылка" if lang == "ru" else "📢 Broadcast", callback_data="admin:broadcast")],
     ])
     await msg.answer("Админ-панель:" if lang == "ru" else "Admin panel:", reply_markup=kb)
 
@@ -1053,6 +1054,19 @@ async def cb_admin_refresh(callback: types.CallbackQuery):
     n = await update_rc_cache(force=True)
     text = (tr("refresh_ok", lang, n=n) if n else tr("refresh_fail", lang))
     await callback.message.edit_text(text)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "admin:broadcast")
+async def cb_admin_broadcast(callback: types.CallbackQuery):
+    if not ADMIN_CHAT_ID or str(callback.from_user.id) != str(ADMIN_CHAT_ID):
+        return
+    lang = await get_lang(callback.from_user.id)
+    await callback.message.edit_text(
+        "📢 Введите команду:\n/broadcast <текст сообщения>"
+        if lang == "ru" else
+        "📢 Enter command:\n/broadcast <message text>"
+    )
     await callback.answer()
 
 
@@ -1151,6 +1165,29 @@ async def inline_query_handler(inline_query: types.InlineQuery):
             input_message_content=InputTextMessageContent(message_text=text),
         ))
     await inline_query.answer(results[:50], cache_time=300)
+
+
+@dp.message(Command("broadcast"))
+async def cmd_broadcast(msg: types.Message):
+    if not ADMIN_CHAT_ID or str(msg.chat.id) != str(ADMIN_CHAT_ID):
+        return
+    args = (msg.text or "").split(maxsplit=1)
+    if len(args) < 2:
+        await msg.answer("Использование: /broadcast <текст>")
+        return
+    text = args[1]
+    await msg.answer("🔄 Начинаю рассылку...")
+    subs = await all_subscribers()
+    count = 0
+    for row in subs:
+        chat_id = row[0]
+        try:
+            await bot.send_message(chat_id, text)
+            count += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            pass
+    await msg.answer(f"✅ Отправлено: {count} пользователям")
 
 
 @dp.message(Command("help"))
