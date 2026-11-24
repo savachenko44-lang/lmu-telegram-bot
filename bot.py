@@ -124,6 +124,19 @@ def parse_dt(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
+def format_duration(dur):
+    if not dur:
+        return ""
+    s = dur.lower().replace("minutes", "min").replace("minute", "min")
+    m = re.search(r"(\d+)\s*h(?:r|our)?s?\s*(\d+)\s*min", s)
+    if m:
+        return f"{m.group(1)}ч {m.group(2)}мин"
+    m = re.search(r"(\d+)\s*min", s)
+    if m:
+        return f"{m.group(1)} мин"
+    return dur
+
+
 def load_events():
     if RC_CACHE_PATH.exists():
         try:
@@ -664,7 +677,7 @@ async def cmd_next(msg: types.Message):
         mins = int((delta.total_seconds() % 3600) // 60)
         medal = medals.get(cat, "🏅")
         dur = e.get("duration", "")
-        dur_line = f"\n{tr('dur', lang, dur=dur)}" if dur else ""
+        dur_line = f"\n{tr('dur', lang, dur=format_duration(dur))}" if dur else ""
         local = dt.astimezone(tz)
         lines.append(
             f"\n{medal} {cat} {medal}\n"
@@ -715,7 +728,7 @@ async def cmd_schedule(msg: types.Message):
                 if e.get("title") == title and e.get("track") == track:
                     dur = e.get("duration", "")
                     break
-            dur_str = f" ({dur})" if dur else ""
+            dur_str = f" ({format_duration(dur)})" if dur else ""
             lines.append(f"• {title} — {track}{dur_str}")
             future_times = [t for t in times if t > now]
             if future_times:
