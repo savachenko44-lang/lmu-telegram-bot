@@ -724,7 +724,8 @@ async def cmd_schedule(msg: types.Message):
         races = sorted(by_cat[cat].items(), key=lambda x: min(t for t in x[1]))
         for idx, ((title, track), times) in enumerate(races):
             try:
-                times_sorted = list(dict.fromkeys(t.astimezone(tz).strftime("%H:%M") for t in sorted(times)))
+                future_times = [t for t in times if t > now]
+            times_sorted = list(dict.fromkeys(t.astimezone(tz).strftime("%H:%M") for t in sorted(future_times)))
             except Exception as ex:
                 await msg.answer(f"❌ Ошибка времени: {ex}")
                 return
@@ -735,7 +736,6 @@ async def cmd_schedule(msg: types.Message):
                     break
             dur_str = f" ({format_duration(dur)})" if dur else ""
             lines.append(f"• {title} — {track}{dur_str}")
-            future_times = [t for t in times if t > now]
             if future_times:
                 lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
             if idx < len(races) - 1:
