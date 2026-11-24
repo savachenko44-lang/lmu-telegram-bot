@@ -780,7 +780,10 @@ async def cmd_export(msg: types.Message):
     lines.append("END:VCALENDAR")
     content = "\n".join(lines)
     file = BufferedInputFile(content.encode("utf-8"), filename="lmu_schedule.ics")
-    await msg.answer_document(file, caption="📅 Расписание гонок LMU (.ics)")
+    await msg.answer_document(
+        file,
+        caption="📅 Расписание гонок LMU (.ics)\n\nСкачайте файл и импортируйте в Google/Apple Calendar."
+    )
 
 
 @dp.callback_query(F.data == "schedule:refresh")
