@@ -347,14 +347,87 @@ async def cleanup_inactive(days=90):
 
 # ---------- RaceControl parser ----------
 async def fetch_racecontrol_events():
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        r = await client.get(RC_URL, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-        })
-        r.raise_for_status()
-        html = r.text
+    last_err = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+                r = await client.get(RC_URL, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                })
+                r.raise_for_status()
+                return parse_rc_html(r.text)
+        except Exception as e:
+            last_err = e
+            await asyncio.sleep(5)
+    raise last_err
+
+
+def parse_rc_html(html):
+    soup = BeautifulSoup(html, "html.parser")
+    cards = soup.find_all("div", class_="scheduled-race-card")
+    now = datetime.now(timezone.utc)
+    events = []
+    for card in cards:
+        title_el = card.find("h4")
+        title = title_el.get_text(strip=True) if title_el else "Unknown"
+        img_el = card.find("img")
+        image = img_el.get("src") if img_el else ""
+        tier_el = card.find("span", class_="tier-badge")
+        tier = tier_el.get_text(strip=True) if tier_el else ""
+        track = ""
+        duration = ""
+        for header in card.find_all("div", class_="race-header"):
+            spans = header.find_all("span")
+            if len(spans) >= 2:
+                label = spans[0].get_text(strip=True).lower()
+                if "track" in label:
+                    track = spans[-1].get_text(strip=True)
+                if "duration" in label:
+                    duration = spans[-1].get_text(strip=True)
+        times = []
+        marquee = card.find("div", class_="marquee-content")
+        if marquee:
+            for badge in marquee.find_all("span", class_="badge"):
+                times.append(badge.get_text(strip=True))
+        for t in times:
+            m = re.match(r"(\d{1,2})\s+(\w{3})\s+at\s+(\d{1,2}):(\d{2})(am|pm)", t, re.I)
+            if not m:
+                continue
+            day = int(m.group(1))
+            mon = MONTHS.get(m.group(2).lower()[:3])
+            if not mon:
+                continue
+            hour = int(m.group(3))
+            minute = int(m.group(4))
+            ap = m.group(5).lower()
+            if ap == "pm" and hour != 12:
+                hour += 12
+            if ap == "am" and hour == 12:
+                hour = 0
+            year = now.year
+            try:
+                dt = datetime(year, mon, day, hour, minute, tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if dt < now - timedelta(days=1):
+                try:
+                    dt = datetime(year + 1, mon, day, hour, minute, tzinfo=timezone.utc)
+                except ValueError:
+                    continue
+            events.append({
+                "id": f"rc-{title.lower().replace(' ', '-')}-{dt.strftime('%Y%m%d%H%M')}",
+                "title": title,
+                "series": "Daily Race",
+                "track": track,
+                "class": tier.capitalize() if tier else "",
+                "duration": duration,
+                "start_utc": dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "sessions": [{"name": "Race", "start_utc": dt.strftime("%Y-%m-%dT%H:%M:%SZ")}],
+                "url": RC_URL
+            })
+    return events
     soup = BeautifulSoup(html, "html.parser")
     cards = soup.find_all("div", class_="scheduled-race-card")
     now = datetime.now(timezone.utc)
@@ -439,6 +512,11 @@ async def update_rc_cache(force=False):
             return len(events)
     except Exception as e:
         print("RC fetch error:", e)
+        if ADMIN_CHAT_ID:
+            try:
+                await bot.send_message(int(ADMIN_CHAT_ID), f"❌ Ошибка обновления расписания: {e}")
+            except Exception:
+                pass
     return 0
 
 
