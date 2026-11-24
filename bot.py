@@ -717,7 +717,8 @@ async def cmd_schedule(msg: types.Message):
                     break
             dur_str = f" ({dur})" if dur else ""
             lines.append(f"• {title} — {track}{dur_str}")
-            if has_future_today:
+            future_times = [t for t in times if t > now]
+            if future_times:
                 lines.append(f"⏰ {', '.join(times_sorted)} ({label})")
             if idx < len(races) - 1:
                 lines.append("")
